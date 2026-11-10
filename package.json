@@ -1,0 +1,14 @@
+{
+  "name": "app-0006-notebook",
+  "version": "1.0.0",
+  "description": "App Sổ Tay Ghi Chép Multi-Notebook với CKEditor 4 và KaTeX",
+  "main": "www/index.html",
+  "scripts": {
+    "build": "npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^5.7.0",
+    "@capacitor/cli": "^5.7.0",
+    "@capacitor/core": "^5.7.0"
+  }
+}
