@@ -16,11 +16,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Java JDK 21
-        uses: actions/setup-java@v5
+      # Chuyển về Java 17 để tương thích 100% với Gradle 8.0.2 của Capacitor
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '17'
 
       # 1. Khởi tạo & Cài đặt Capacitor
       - name: Install Dependencies & Capacitor
@@ -35,7 +36,7 @@ jobs:
           mkdir -p android/app/src/main/assets/public
           cp -r www/* android/app/src/main/assets/public/
 
-      # 3. Sửa lỗi trùng lặp thư viện Kotlin (nếu có)
+      # 3. Sửa lỗi trùng lặp thư viện Kotlin
       - name: Fix Kotlin Duplicate Dependencies
         run: |
           if ! grep -q "kotlin-stdlib-jdk7" android/app/build.gradle; then
@@ -54,7 +55,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      # 5. Upload File APK (Sử dụng action/upload-artifact@v4)
+      # 5. Upload File APK
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
