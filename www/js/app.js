@@ -1,9 +1,9 @@
-// 1. Disable CKEditor Version Warning Banner globally
+// Disable CKEditor Version Warning Banner globally
 if (window.CKEDITOR) {
   CKEDITOR.config.versionCheck = false;
 }
 
-// 2. Initialize IndexedDB via Dexie
+// Initialize IndexedDB via Dexie
 const db = new Dexie("App0006SmartNotebookDB");
 db.version(1).stores({
   notebooks: "++id, title, content, createdAt, updatedAt"
@@ -15,14 +15,14 @@ let isEraserMode = false;
 let currentPenColor = "#1e293b";
 const SECRET_TOKEN = "PhuongDevNe";
 
-// 3. Application Entrypoint
+// Application Entrypoint
 window.addEventListener("DOMContentLoaded", async () => {
   initCKEditor();
   initCanvasDrawing();
   await loadNotebooksList();
 });
 
-// 4. CKEditor Setup & Auto KaTeX Rendering
+// Compact Mobile-Optimized CKEditor Toolbar Setup
 function initCKEditor() {
   CKEDITOR.config.versionCheck = false;
   
@@ -32,19 +32,15 @@ function initCKEditor() {
     extraAllowedContent: "*(*);*{*}",
     versionCheck: false,
     toolbar: [
-      { name: "document", items: ["Source", "-", "NewPage", "Preview"] },
-      { name: "clipboard", items: ["Cut", "Copy", "Paste", "PasteText", "PasteFromWord", "-", "Undo", "Redo"] },
-      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "Subscript", "Superscript", "RemoveFormat"] },
-      { name: "paragraph", items: ["NumberedList", "BulletedList", "-", "Outdent", "Indent", "-", "Blockquote", "-", "JustifyLeft", "JustifyCenter", "JustifyRight", "JustifyBlock"] },
-      { name: "links", items: ["Link", "Unlink"] },
-      { name: "insert", items: ["Image", "Table", "HorizontalRule", "SpecialChar"] },
-      { name: "styles", items: ["Format", "Font", "FontSize"] },
+      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "RemoveFormat"] },
+      { name: "paragraph", items: ["NumberedList", "BulletedList", "-", "Blockquote", "-", "JustifyLeft", "JustifyCenter", "JustifyRight"] },
+      { name: "insert", items: ["Image", "Table", "SpecialChar"] },
+      { name: "styles", items: ["Format"] },
       { name: "colors", items: ["TextColor", "BGColor"] }
     ]
   });
 
   ckEditorInstance.on("instanceReady", () => {
-    // Hide warning element if created
     const warn = document.querySelector(".cke_notification_warning");
     if (warn) warn.style.display = "none";
   });
@@ -73,7 +69,7 @@ function triggerKaTeXRender() {
   }, 350);
 }
 
-// 5. Notebook Library CRUD
+// Notebook Library CRUD
 async function loadNotebooksList(filterText = "") {
   let notebooks = await db.notebooks.orderBy("updatedAt").reverse().toArray();
   
@@ -170,7 +166,7 @@ async function deleteNotebook(id) {
 
 function onSearchInput(val) { loadNotebooksList(val); }
 
-// 6. UI Navigation
+// Navigation UI
 function openSidebar() {
   document.getElementById("sidebar").classList.add("open");
   document.getElementById("sidebar-overlay").style.display = "block";
@@ -189,7 +185,7 @@ function insertMathFormulaPrompt() {
   }
 }
 
-// 7. Hand-Drawing Canvas Engine
+// Canvas Drawing Engine
 const canvas = document.getElementById("drawing-board");
 const ctx = canvas.getContext("2d");
 let isDrawing = false;
@@ -271,7 +267,7 @@ function insertDrawingToEditor() {
   saveCurrentNoteAuto();
 }
 
-// 8. Cloud Backup & Sync Engine
+// Cloud Backup & Sync Engine
 function openCloudModal() { document.getElementById("cloud-modal").style.display = "flex"; }
 function closeCloudModal() { document.getElementById("cloud-modal").style.display = "none"; }
 
@@ -383,7 +379,7 @@ async function restoreCloudVersion(filename) {
   }
 }
 
-// 9. Local JSON Backup & Export
+// Local JSON Backup & Export
 async function exportDataJSON() {
   const data = await db.notebooks.toArray();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });

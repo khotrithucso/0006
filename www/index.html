@@ -57,14 +57,22 @@
 
   <!-- Main Workspace -->
   <main id="main-content">
+    <!-- Top Header: Dual Layer Responsive -->
     <header class="top-bar">
-      <button class="btn-menu" onclick="openSidebar()">☰</button>
-      <input type="text" id="note-title" placeholder="Notebook Title..." onchange="saveCurrentNoteAuto()">
-      
-      <div class="action-buttons">
-        <button onclick="openCanvasModal()" class="btn-tool" title="Draw Canvas">🎨 Draw</button>
-        <button onclick="insertMathFormulaPrompt()" class="btn-tool" title="Insert Math Formula">∑ Math</button>
+      <!-- Row 1: Primary Controls -->
+      <div class="top-bar-main">
+        <button class="btn-menu" onclick="openSidebar()">☰</button>
+        <input type="text" id="note-title" placeholder="Notebook Title..." onchange="saveCurrentNoteAuto()">
         <button onclick="saveCurrentNoteAuto()" class="btn-save">💾 Save</button>
+      </div>
+
+      <!-- Row 2: Touch-Scrollable Action Tools -->
+      <div class="top-bar-tools">
+        <button onclick="openCanvasModal()" class="btn-chip">🎨 Draw</button>
+        <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Math</button>
+        <button onclick="openCloudModal()" class="btn-chip">☁️ Sync</button>
+        <button onclick="exportDataJSON()" class="btn-chip">📥 Export</button>
+        <button onclick="triggerImport()" class="btn-chip">📤 Import</button>
       </div>
     </header>
 
@@ -73,13 +81,13 @@
       <textarea id="editor" name="editor"></textarea>
     </div>
 
-    <!-- Bottom App Footer & Banner Ad Container -->
+    <!-- Bottom App Footer -->
     <footer class="app-footer">
       <div id="admob-banner-container" class="ad-container">
         <span class="ad-placeholder">Ad Space - Powered by AdMob</span>
       </div>
       <div class="footer-meta">
-        <span>Smart Note Pro v2.0 • Offline Ready</span>
+        <span>Smart Note Pro v2.0</span>
         <span id="save-status">All changes saved</span>
       </div>
     </footer>
@@ -130,8 +138,8 @@
         </div>
 
         <div class="cloud-actions">
-          <button onclick="performCloudBackup()" class="btn-primary-cloud">📤 Backup Current Data</button>
-          <button onclick="fetchCloudVersions()" class="btn-secondary-cloud">🔍 Find Cloud Backups</button>
+          <button onclick="performCloudBackup()" class="btn-primary-cloud">📤 Backup Data</button>
+          <button onclick="fetchCloudVersions()" class="btn-secondary-cloud">🔍 Find Backups</button>
         </div>
 
         <div id="cloud-versions-wrapper" style="display: none; margin-top: 15px;">
