@@ -1,5 +1,10 @@
-// 1. Khởi tạo Database IndexedDB qua Dexie
-const db = new Dexie("App0006NotebookDB");
+// 1. Disable CKEditor Version Warning Banner globally
+if (window.CKEDITOR) {
+  CKEDITOR.config.versionCheck = false;
+}
+
+// 2. Initialize IndexedDB via Dexie
+const db = new Dexie("App0006SmartNotebookDB");
 db.version(1).stores({
   notebooks: "++id, title, content, createdAt, updatedAt"
 });
@@ -7,36 +12,45 @@ db.version(1).stores({
 let currentNotebookId = null;
 let ckEditorInstance = null;
 let isEraserMode = false;
-let currentPenColor = "#000000";
+let currentPenColor = "#1e293b";
+const SECRET_TOKEN = "PhuongDevNe";
 
-// 2. Khởi động App khi Window Load
+// 3. Application Entrypoint
 window.addEventListener("DOMContentLoaded", async () => {
   initCKEditor();
   initCanvasDrawing();
   await loadNotebooksList();
 });
 
-// 3. Khởi tạo CKEditor 4 & Cấu hình Tự Động Render KaTeX
+// 4. CKEditor Setup & Auto KaTeX Rendering
 function initCKEditor() {
+  CKEDITOR.config.versionCheck = false;
+  
   ckEditorInstance = CKEDITOR.replace("editor", {
     height: "100%",
-    allowedContent: true, // Cho phép paste đầy đủ thẻ HTML từ Gemini/ChatGPT
+    allowedContent: true,
     extraAllowedContent: "*(*);*{*}",
+    versionCheck: false,
     toolbar: [
       { name: "document", items: ["Source", "-", "NewPage", "Preview"] },
       { name: "clipboard", items: ["Cut", "Copy", "Paste", "PasteText", "PasteFromWord", "-", "Undo", "Redo"] },
-      { name: "editing", items: ["Find", "Replace", "SelectAll"] },
       { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "Subscript", "Superscript", "RemoveFormat"] },
       { name: "paragraph", items: ["NumberedList", "BulletedList", "-", "Outdent", "Indent", "-", "Blockquote", "-", "JustifyLeft", "JustifyCenter", "JustifyRight", "JustifyBlock"] },
       { name: "links", items: ["Link", "Unlink"] },
-      { name: "insert", items: ["Image", "Table", "HorizontalRule", "Smiley", "SpecialChar"] },
-      { name: "styles", items: ["Styles", "Format", "Font", "FontSize"] },
+      { name: "insert", items: ["Image", "Table", "HorizontalRule", "SpecialChar"] },
+      { name: "styles", items: ["Format", "Font", "FontSize"] },
       { name: "colors", items: ["TextColor", "BGColor"] }
     ]
   });
 
-  // Tự động quét và vẽ công thức toán KaTeX mỗi khi nội dung thay đổi
+  ckEditorInstance.on("instanceReady", () => {
+    // Hide warning element if created
+    const warn = document.querySelector(".cke_notification_warning");
+    if (warn) warn.style.display = "none";
+  });
+
   ckEditorInstance.on("change", () => {
+    document.getElementById("save-status").textContent = "Unsaved changes...";
     triggerKaTeXRender();
   });
 }
@@ -56,10 +70,10 @@ function triggerKaTeXRender() {
         throwOnError: false
       });
     }
-  }, 400);
+  }, 350);
 }
 
-// 4. Quản lý Danh Sách Cuốn Tập (CRUD Operations)
+// 5. Notebook Library CRUD
 async function loadNotebooksList(filterText = "") {
   let notebooks = await db.notebooks.orderBy("updatedAt").reverse().toArray();
   
@@ -84,11 +98,11 @@ async function loadNotebooksList(filterText = "") {
     li.className = nb.id === currentNotebookId ? "active" : "";
     
     const titleSpan = document.createElement("span");
-    titleSpan.textContent = nb.title || "Tập chưa đặt tên";
+    titleSpan.textContent = nb.title || "Untitled Notebook";
     titleSpan.onclick = () => selectNotebook(nb.id);
 
     const delBtn = document.createElement("button");
-    delBtn.className = "btn-icon";
+    delBtn.className = "btn-close";
     delBtn.innerHTML = "🗑️";
     delBtn.onclick = (e) => {
       e.stopPropagation();
@@ -108,8 +122,8 @@ async function loadNotebooksList(filterText = "") {
 async function createNewNotebook() {
   const timestamp = new Date().getTime();
   const id = await db.notebooks.add({
-    title: "Cuốn tập mới " + new Date().toLocaleDateString("vi-VN"),
-    content: "<p>Dán nội dung HTML hoặc mã LaTeX từ Gemini/ChatGPT vào đây...</p>",
+    title: "New Notebook " + new Date().toLocaleDateString("en-US"),
+    content: "<p>Paste HTML or LaTeX content from Gemini/ChatGPT here...</p>",
     createdAt: timestamp,
     updatedAt: timestamp
   });
@@ -127,6 +141,7 @@ async function selectNotebook(id) {
       triggerKaTeXRender();
     });
   }
+  document.getElementById("save-status").textContent = "All changes saved";
   loadNotebooksList();
 }
 
@@ -141,26 +156,21 @@ async function saveCurrentNoteAuto() {
     updatedAt: new Date().getTime()
   });
 
-  const listEl = document.getElementById("notebook-list");
-  const activeLi = listEl.querySelector("li.active span");
-  if (activeLi) activeLi.textContent = title || "Tập chưa đặt tên";
+  document.getElementById("save-status").textContent = "All changes saved";
+  loadNotebooksList();
 }
 
 async function deleteNotebook(id) {
-  if (confirm("Bạn có chắc chắn muốn xóa cuốn tập này không?")) {
+  if (confirm("Are you sure you want to delete this notebook?")) {
     await db.notebooks.delete(id);
-    if (currentNotebookId === id) {
-      currentNotebookId = null;
-    }
+    if (currentNotebookId === id) currentNotebookId = null;
     await loadNotebooksList();
   }
 }
 
-function onSearchInput(val) {
-  loadNotebooksList(val);
-}
+function onSearchInput(val) { loadNotebooksList(val); }
 
-// 5. Drawer UI Toggle Functions
+// 6. UI Navigation
 function openSidebar() {
   document.getElementById("sidebar").classList.add("open");
   document.getElementById("sidebar-overlay").style.display = "block";
@@ -171,34 +181,28 @@ function closeSidebar() {
   document.getElementById("sidebar-overlay").style.display = "none";
 }
 
-// 6. Chèn Nhanh Mẫu Công Thức Toán (Math Helper Prompt)
 function insertMathFormulaPrompt() {
-  const formula = prompt("Nhập công thức LaTeX (Ví dụ: \\frac{-b \\pm \\sqrt{\\Delta}}{2a} hoặc E = mc^2):", "\\int_{0}^{\\infty} x^2 dx");
+  const formula = prompt("Enter LaTeX math formula (e.g., \\frac{a}{b} or E = mc^2):", "\\int_{0}^{\\infty} x^2 dx");
   if (formula) {
-    const formatted = ` $$${formula}$$ `;
-    ckEditorInstance.insertHtml(formatted);
+    ckEditorInstance.insertHtml(` $$${formula}$$ `);
     triggerKaTeXRender();
   }
 }
 
-// 7. Xử Lý Vẽ Tay Canvas (Drawing Board Engine)
+// 7. Hand-Drawing Canvas Engine
 const canvas = document.getElementById("drawing-board");
 const ctx = canvas.getContext("2d");
 let isDrawing = false;
 
 function initCanvasDrawing() {
-  const sizeInput = document.getElementById("brush-size");
-  sizeInput.addEventListener("input", (e) => {
+  document.getElementById("brush-size").addEventListener("input", (e) => {
     document.getElementById("brush-size-val").textContent = e.target.value + "px";
   });
-
-  const colorInput = document.getElementById("brush-color");
-  colorInput.addEventListener("input", (e) => {
+  document.getElementById("brush-color").addEventListener("input", (e) => {
     currentPenColor = e.target.value;
     setPenMode();
   });
 
-  // Event Listeners cho Touch & Mouse
   canvas.addEventListener("pointerdown", startDrawing);
   canvas.addEventListener("pointermove", draw);
   canvas.addEventListener("pointerup", stopDrawing);
@@ -233,18 +237,13 @@ function draw(e) {
   ctx.stroke();
 }
 
-function stopDrawing() {
-  isDrawing = false;
-  ctx.beginPath();
-}
+function stopDrawing() { isDrawing = false; ctx.beginPath(); }
 
 function getCanvasPos(e) {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
   return {
-    x: (e.clientX - rect.left) * scaleX,
-    y: (e.clientY - rect.top) * scaleY
+    x: (e.clientX - rect.left) * (canvas.width / rect.width),
+    y: (e.clientY - rect.top) * (canvas.height / rect.height)
   };
 }
 
@@ -260,62 +259,160 @@ function setPenMode() {
   document.getElementById("btn-eraser").classList.remove("active");
 }
 
-function clearCanvas() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-
-function openCanvasModal() {
-  document.getElementById("canvas-modal").style.display = "flex";
-}
-
-function closeCanvasModal() {
-  document.getElementById("canvas-modal").style.display = "none";
-}
+function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
+function openCanvasModal() { document.getElementById("canvas-modal").style.display = "flex"; }
+function closeCanvasModal() { document.getElementById("canvas-modal").style.display = "none"; }
 
 function insertDrawingToEditor() {
   const dataURL = canvas.toDataURL("image/png");
-  ckEditorInstance.insertHtml(`<p><img src="${dataURL}" style="max-width:100%; height:auto; border:1px solid #ddd; border-radius:4px;" /></p>`);
+  ckEditorInstance.insertHtml(`<p><img src="${dataURL}" style="max-width:100%; height:auto; border-radius:8px;" /></p>`);
   clearCanvas();
   closeCanvasModal();
   saveCurrentNoteAuto();
 }
 
-// 8. Backup & Restore Data (Export/Import JSON)
+// 8. Cloud Backup & Sync Engine
+function openCloudModal() { document.getElementById("cloud-modal").style.display = "flex"; }
+function closeCloudModal() { document.getElementById("cloud-modal").style.display = "none"; }
+
+async function performCloudBackup() {
+  const email = document.getElementById("cloud-email").value;
+  const password = document.getElementById("cloud-pass").value;
+
+  if (!email || !password) {
+    alert("Please enter both email and password.");
+    return;
+  }
+
+  const allNotebooks = await db.notebooks.toArray();
+  
+  try {
+    const res = await fetch("https://khotrithucso.io.vn/apps/0006/backup.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: SECRET_TOKEN,
+        email: email,
+        password: password,
+        data: allNotebooks
+      })
+    });
+    const result = await res.json();
+    alert(result.message);
+  } catch (err) {
+    alert("Cloud connection failed: " + err.message);
+  }
+}
+
+async function fetchCloudVersions() {
+  const email = document.getElementById("cloud-email").value;
+  const password = document.getElementById("cloud-pass").value;
+
+  if (!email || !password) {
+    alert("Please enter credentials first.");
+    return;
+  }
+
+  try {
+    const res = await fetch("https://khotrithucso.io.vn/apps/0006/restore.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: SECRET_TOKEN,
+        email: email,
+        password: password,
+        action: "list"
+      })
+    });
+    const result = await res.json();
+    
+    if (result.status === "success") {
+      const listEl = document.getElementById("cloud-versions-list");
+      listEl.innerHTML = "";
+      document.getElementById("cloud-versions-wrapper").style.display = "block";
+
+      if (result.backups.length === 0) {
+        listEl.innerHTML = "<li style='padding:10px;'>No backups found.</li>";
+        return;
+      }
+
+      result.backups.forEach(item => {
+        const li = document.createElement("li");
+        li.innerHTML = `<span>📅 ${item.timestamp}</span> <button class='btn-tool-sm' onclick='restoreCloudVersion("${item.filename}")'>Restore</button>`;
+        listEl.appendChild(li);
+      });
+    } else {
+      alert(result.message);
+    }
+  } catch (err) {
+    alert("Error fetching versions: " + err.message);
+  }
+}
+
+async function restoreCloudVersion(filename) {
+  const email = document.getElementById("cloud-email").value;
+  const password = document.getElementById("cloud-pass").value;
+
+  if (!confirm("Restoring will overwrite your current local data. Continue?")) return;
+
+  try {
+    const res = await fetch("https://khotrithucso.io.vn/apps/0006/restore.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: SECRET_TOKEN,
+        email: email,
+        password: password,
+        action: "fetch",
+        filename: filename
+      })
+    });
+    const result = await res.json();
+
+    if (result.status === "success" && Array.isArray(result.data)) {
+      await db.notebooks.clear();
+      await db.notebooks.bulkAdd(result.data);
+      alert("Data restored successfully!");
+      closeCloudModal();
+      await loadNotebooksList();
+    } else {
+      alert(result.message || "Invalid restore data.");
+    }
+  } catch (err) {
+    alert("Restore failed: " + err.message);
+  }
+}
+
+// 9. Local JSON Backup & Export
 async function exportDataJSON() {
-  const allData = await db.notebooks.toArray();
-  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allData, null, 2));
-  const downloadAnchor = document.createElement("a");
-  downloadAnchor.setAttribute("href", dataStr);
-  downloadAnchor.setAttribute("download", `Backup_App0006_${new Date().toISOString().slice(0,10)}.json`);
-  document.body.appendChild(downloadAnchor);
-  downloadAnchor.click();
-  downloadAnchor.remove();
+  const data = await db.notebooks.toArray();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `SmartNote_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
 }
 
-function triggerImport() {
-  document.getElementById("import-file-input").click();
-}
+function triggerImport() { document.getElementById("import-file-input").click(); }
 
-async function importDataJSON(event) {
-  const file = event.target.files[0];
+async function importDataJSON(e) {
+  const file = e.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = async (e) => {
+  reader.onload = async (evt) => {
     try {
-      const importedNotebooks = JSON.parse(e.target.result);
-      if (Array.isArray(importedNotebooks)) {
+      const data = JSON.parse(evt.target.result);
+      if (Array.isArray(data)) {
         await db.notebooks.clear();
-        await db.notebooks.bulkAdd(importedNotebooks);
-        alert("Khôi phục dữ liệu thành công!");
+        await db.notebooks.bulkAdd(data);
+        alert("Import successful!");
         await loadNotebooksList();
-      } else {
-        alert("File JSON không hợp lệ!");
       }
     } catch (err) {
-      alert("Lỗi đọc file JSON: " + err.message);
+      alert("Invalid JSON file.");
     }
   };
   reader.readAsText(file);
 }
- 

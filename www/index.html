@@ -1,95 +1,147 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Sổ Tay 0006 Pro V1</title>
+  <title>Smart Note Pro V2</title>
   
   <!-- CKEditor 4 Full CDN -->
   <script src="https://cdn.ckeditor.com/4.22.1/full/ckeditor.js"></script>
   
-  <!-- KaTeX CSS & JS -->
+  <!-- KaTeX Math Renderer -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
 
-  <!-- Dexie.js (IndexedDB Wrapper) -->
+  <!-- Dexie.js (IndexedDB Engine) -->
   <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
   
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-  <!-- Sidebar Drawer Backdrop -->
+  <!-- Sidebar Overlay -->
   <div id="sidebar-overlay" onclick="closeSidebar()"></div>
 
-  <!-- Sidebar Left: Danh Sách Cuốn Tập -->
+  <!-- Sidebar Drawer: Notebook Library -->
   <aside id="sidebar">
     <div class="sidebar-header">
-      <h2>📚 Tủ Sổ Tay</h2>
-      <button class="btn-icon" onclick="closeSidebar()">✕</button>
+      <div class="brand">
+        <span class="brand-icon">📚</span>
+        <div>
+          <h3>Notebook Library</h3>
+          <small>App 0006 Pro V2</small>
+        </div>
+      </div>
+      <button class="btn-close" onclick="closeSidebar()">✕</button>
     </div>
     
     <div class="sidebar-actions">
-      <button class="btn-create" onclick="createNewNotebook()">+ Cuốn tập mới</button>
-      <input type="text" id="search-input" placeholder="🔍 Tìm kiếm bài viết..." oninput="onSearchInput(this.value)">
+      <button class="btn-create" onclick="createNewNotebook()">+ New Notebook</button>
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search notes..." oninput="onSearchInput(this.value)">
+      </div>
     </div>
 
     <ul id="notebook-list"></ul>
 
     <div class="sidebar-footer">
-      <button onclick="exportDataJSON()" class="btn-secondary">📥 Export JSON</button>
-      <button onclick="triggerImport()" class="btn-secondary">📤 Import JSON</button>
-      <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importDataJSON(event)">
+      <button onclick="openCloudModal()" class="btn-cloud">☁️ Cloud Backup & Sync</button>
+      <div class="file-tools">
+        <button onclick="exportDataJSON()" class="btn-sub">📥 Export</button>
+        <button onclick="triggerImport()" class="btn-sub">📤 Import</button>
+        <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importDataJSON(event)">
+      </div>
     </div>
   </aside>
 
-  <!-- Main Viewport -->
+  <!-- Main Workspace -->
   <main id="main-content">
-    <!-- Top Action Bar -->
     <header class="top-bar">
       <button class="btn-menu" onclick="openSidebar()">☰</button>
-      <input type="text" id="note-title" placeholder="Tiêu đề tập ghi chép..." onchange="saveCurrentNoteAuto()">
+      <input type="text" id="note-title" placeholder="Notebook Title..." onchange="saveCurrentNoteAuto()">
       
       <div class="action-buttons">
-        <button onclick="openCanvasModal()" title="Vẽ tay">🎨 Vẽ</button>
-        <button onclick="insertMathFormulaPrompt()" title="Chèn công thức toán">∑ Toán</button>
-        <button onclick="saveCurrentNoteAuto()" class="btn-save">💾 Lưu</button>
+        <button onclick="openCanvasModal()" class="btn-tool" title="Draw Canvas">🎨 Draw</button>
+        <button onclick="insertMathFormulaPrompt()" class="btn-tool" title="Insert Math Formula">∑ Math</button>
+        <button onclick="saveCurrentNoteAuto()" class="btn-save">💾 Save</button>
       </div>
     </header>
 
-    <!-- Editor Wrapper -->
+    <!-- Content Editor Wrapper -->
     <div class="editor-wrapper">
       <textarea id="editor" name="editor"></textarea>
     </div>
+
+    <!-- Bottom App Footer & Banner Ad Container -->
+    <footer class="app-footer">
+      <div id="admob-banner-container" class="ad-container">
+        <span class="ad-placeholder">Ad Space - Powered by AdMob</span>
+      </div>
+      <div class="footer-meta">
+        <span>Smart Note Pro v2.0 • Offline Ready</span>
+        <span id="save-status">All changes saved</span>
+      </div>
+    </footer>
   </main>
 
-  <!-- Modal Vẽ Tay (Canvas Drawing Board) -->
+  <!-- Canvas Drawing Modal -->
   <div id="canvas-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>🎨 Bảng Vẽ Ghi Chú Tay</h3>
-        <button class="btn-icon" onclick="closeCanvasModal()">✕</button>
+        <h3>🎨 Hand-Drawing Canvas</h3>
+        <button class="btn-close" onclick="closeCanvasModal()">✕</button>
       </div>
       
       <div class="canvas-toolbar">
-        <label>Màu: <input type="color" id="brush-color" value="#000000"></label>
-        <label>Nét: 
-          <input type="range" id="brush-size" min="1" max="20" value="3">
-          <span id="brush-size-val">3px</span>
+        <label>Color: <input type="color" id="brush-color" value="#1e293b"></label>
+        <label>Size: 
+          <input type="range" id="brush-size" min="1" max="25" value="4">
+          <span id="brush-size-val">4px</span>
         </label>
-        <button onclick="setEraserMode()" id="btn-eraser">🧹 Tẩy</button>
-        <button onclick="setPenMode()" id="btn-pen" class="active">✏️ Bút</button>
-        <button onclick="clearCanvas()">🗑️ Xóa hết</button>
+        <button onclick="setEraserMode()" id="btn-eraser" class="btn-tool-sm">🧹 Eraser</button>
+        <button onclick="setPenMode()" id="btn-pen" class="btn-tool-sm active">✏️ Pen</button>
+        <button onclick="clearCanvas()" class="btn-tool-sm">🗑️ Clear</button>
       </div>
 
       <div class="canvas-container">
-        <canvas id="drawing-board" width="600" height="400"></canvas>
+        <canvas id="drawing-board" width="600" height="420"></canvas>
       </div>
 
       <div class="modal-footer">
-        <button onclick="closeCanvasModal()" class="btn-secondary">Hủy</button>
-        <button onclick="insertDrawingToEditor()" class="btn-save">Chèn vào ghi chép</button>
+        <button onclick="closeCanvasModal()" class="btn-sub">Cancel</button>
+        <button onclick="insertDrawingToEditor()" class="btn-save">Insert to Note</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cloud Backup & Restore Modal -->
+  <div id="cloud-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>☁️ Cloud Backup & Restore</h3>
+        <button class="btn-close" onclick="closeCloudModal()">✕</button>
+      </div>
+      
+      <div class="modal-body">
+        <div class="auth-box">
+          <input type="email" id="cloud-email" placeholder="Account Email...">
+          <input type="password" id="cloud-pass" placeholder="Account Password...">
+        </div>
+
+        <div class="cloud-actions">
+          <button onclick="performCloudBackup()" class="btn-primary-cloud">📤 Backup Current Data</button>
+          <button onclick="fetchCloudVersions()" class="btn-secondary-cloud">🔍 Find Cloud Backups</button>
+        </div>
+
+        <div id="cloud-versions-wrapper" style="display: none; margin-top: 15px;">
+          <h4>Available Backups:</h4>
+          <ul id="cloud-versions-list"></ul>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="closeCloudModal()" class="btn-sub">Close</button>
       </div>
     </div>
   </div>
