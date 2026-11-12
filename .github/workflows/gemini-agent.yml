@@ -14,33 +14,80 @@ permissions:
 jobs:
   ai-agent:
     if: >
-      (github.event_name == 'issues' && contains(github.event.issue.body, '@gemini-cli')) ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gemini-cli'))
+      github.actor == github.repository_owner &&
+      (
+        (github.event_name == 'issues' && contains(github.event.issue.body || '', '@gemini-cli')) ||
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body || '', '@gemini-cli'))
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || github.token }}
 
       - name: Run Gemini CLI
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
           ISSUE_BODY: ${{ github.event.issue.body }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          PROMPT="${COMMENT_BODY:-$ISSUE_BODY}"
-          npx -y @google/gemini-cli -y -p "$PROMPT"
+          set -o pipefail
+          RAW_PROMPT="${COMMENT_BODY:-$ISSUE_BODY}"
+          CLEAN_PROMPT="${RAW_PROMPT//@gemini-cli/}"
+          FULL_PROMPT="Bạn là AI coding agent đang làm việc trực tiếp trong thư mục dự án trên GitHub Actions. Hãy đọc các file liên quan và chỉnh sửa trực tiếp mã nguồn trên ổ đĩa để hoàn thành yêu cầu sau (không chỉnh sửa thư mục .github/workflows trừ khi được yêu cầu rõ): $CLEAN_PROMPT"
+
+          npx -y @google/gemini-cli -y -p="$FULL_PROMPT" 2>&1 | tee /tmp/gemini_output.txt
 
       - name: Commit and Push changes
+        id: git_push
         run: |
           git config user.name "gemini-cli[bot]"
           git config user.email "gemini-cli[bot]@users.noreply.github.com"
+
           git add -A
           if ! git diff --cached --quiet; then
             git commit -m "AI update via Gemini CLI"
+            git pull --rebase origin main
             git push origin main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           else
-            echo "Không có file nào thay đổi."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Reply to Issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          JOB_STATUS: ${{ job.status }}
+          CHANGED: ${{ steps.git_push.outputs.changed }}
+          COMMIT_SHA: ${{ steps.git_push.outputs.sha }}
+        run: |
+          if [ "$JOB_STATUS" != "success" ]; then
+            HEADER="❌ **Gemini CLI gặp lỗi trong quá trình chạy.**"
+          elif [ "$CHANGED" = "true" ]; then
+            HEADER="✅ **Đã cập nhật code lên nhánh \`main\`** (Commit: \`$COMMIT_SHA\`)"
+          else
+            HEADER="ℹ️ **Hoàn tất kiểm tra** (Không có file nào bị thay đổi)."
+          fi
+
+          SUMMARY=$(tail -n 60 /tmp/gemini_output.txt 2>/dev/null || echo "Không có nội dung log.")
+          {
+            echo "$HEADER"
+            echo ""
+            echo "<details><summary>Xem chi tiết phản hồi từ Gemini</summary>"
+            echo ""
+            echo '```text'
+            echo "$SUMMARY"
+            echo '```'
+            echo "</details>"
+          } > /tmp/reply.md
+
+          gh issue comment "$ISSUE_NUMBER" --body-file /tmp/reply.md
