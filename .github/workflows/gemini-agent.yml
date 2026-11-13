@@ -1,3 +1,29 @@
+name: Gemini AI Coding Agent
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  ai-agent:
+    if: github.actor == github.repository_owner && (contains(github.event.issue.body || '', '@gemini-cli') || contains(github.event.comment.body || '', '@gemini-cli'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || github.token }}
+
       - name: Run Gemini CLI
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -9,13 +35,56 @@
           RAW_PROMPT="${COMMENT_BODY:-$ISSUE_BODY}"
           CLEAN_PROMPT="${RAW_PROMPT//@gemini-cli/}"
           FULL_PROMPT="Bạn là AI coding agent. Hãy đọc các file mã nguồn chính và sửa trực tiếp trên ổ đĩa để hoàn thành yêu cầu sau (không sửa .github/workflows, android, node_modules): $CLEAN_PROMPT"
-
           for MODEL in "gemini-3.5-flash-lite" "gemini-3.1-flash-lite" "gemini-3-flash"; do
-            echo "=== Đang chạy với model: $MODEL ==="
+            echo "=== Dang chay model: $MODEL ==="
             if npx -y @google/gemini-cli -y -m "$MODEL" -p="$FULL_PROMPT" 2>&1 | tee /tmp/gemini_output.txt; then
               exit 0
             fi
-            echo "Model $MODEL hết hạn mức, chuyển sang model dự phòng..."
             sleep 5
           done
           exit 1
+
+      - name: Commit and Push changes
+        id: git_push
+        run: |
+          git config user.name "gemini-cli[bot]"
+          git config user.email "gemini-cli[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "AI update via Gemini CLI"
+            git pull --rebase origin main
+            git push origin main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reply to Issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          JOB_STATUS: ${{ job.status }}
+          CHANGED: ${{ steps.git_push.outputs.changed }}
+          COMMIT_SHA: ${{ steps.git_push.outputs.sha }}
+        run: |
+          if [ "$JOB_STATUS" != "success" ]; then
+            HEADER="❌ **Gemini CLI gặp lỗi trong quá trình chạy.**"
+          elif [ "$CHANGED" = "true" ]; then
+            HEADER="✅ **Đã cập nhật code lên nhánh \`main\`** (Commit: \`$COMMIT_SHA\`)"
+          else
+            HEADER="ℹ️ **Hoàn tất kiểm tra** (Không có file nào bị thay đổi)."
+          fi
+          SUMMARY=$(tail -n 60 /tmp/gemini_output.txt 2>/dev/null || echo "Không có nội dung log.")
+          {
+            echo "$HEADER"
+            echo ""
+            echo "<details><summary>Xem chi tiết phản hồi từ Gemini</summary>"
+            echo ""
+            echo '```text'
+            echo "$SUMMARY"
+            echo '```'
+            echo "</details>"
+          } > /tmp/reply.md
+          gh issue comment "$ISSUE_NUMBER" --body-file /tmp/reply.md
