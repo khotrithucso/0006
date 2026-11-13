@@ -341,36 +341,8 @@ function closeCloudModal() {
   if (modal) modal.style.display = "none"; 
 }
 
-async function performCloudBackup() {
-  const emailEl = document.getElementById("cloud-email");
-  const passEl = document.getElementById("cloud-pass");
-  const email = emailEl ? emailEl.value : "";
-  const password = passEl ? passEl.value : "";
 
-  if (!email || !password) {
-    alert("Please enter both email and password.");
-    return;
-  }
 
-  const allNotebooks = await db.notebooks.toArray();
-  
-  try {
-    const res = await fetch("https://khotrithucso.io.vn/apps/0006/backup.php", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: SECRET_TOKEN,
-        email: email,
-        password: password,
-        data: allNotebooks
-      })
-    });
-    const result = await res.json();
-    alert(result.message);
-  } catch (err) {
-    alert("Cloud connection failed: " + err.message);
-  }
-}
 
 async function fetchCloudVersions() {
   const emailEl = document.getElementById("cloud-email");
@@ -422,11 +394,50 @@ async function fetchCloudVersions() {
   }
 }
 
+
+async function performCloudBackup() {
+  const emailEl = document.getElementById("cloud-email");
+  const passEl = document.getElementById("cloud-pass");
+  const email = emailEl ? emailEl.value.trim() : "";
+  const password = passEl ? passEl.value.trim() : "";
+
+  if (!email || !password) {
+    alert("Please enter both email and password.");
+    return;
+  }
+
+  // Lưu nội dung đang gõ xuống IndexedDB trước khi đẩy lên server
+  await saveCurrentNoteAuto();
+
+  const allNotebooks = await db.notebooks.toArray();
+  if (allNotebooks.length === 0) {
+    alert("No notebooks to backup.");
+    return;
+  }
+
+  try {
+    const res = await fetch("https://khotrithucso.io.vn/apps/0006/backup.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: SECRET_TOKEN,
+        email: email,
+        password: password,
+        data: allNotebooks
+      })
+    });
+    const result = await res.json();
+    alert(result.message);
+  } catch (err) {
+    alert("Cloud connection failed: " + err.message);
+  }
+}
+
 async function restoreCloudVersion(filename) {
   const emailEl = document.getElementById("cloud-email");
   const passEl = document.getElementById("cloud-pass");
-  const email = emailEl ? emailEl.value : "";
-  const password = passEl ? passEl.value : "";
+  const email = emailEl ? emailEl.value.trim() : "";
+  const password = passEl ? passEl.value.trim() : "";
 
   if (!confirm("Restoring will overwrite your current local data. Continue?")) return;
 
@@ -445,14 +456,18 @@ async function restoreCloudVersion(filename) {
     const result = await res.json();
 
     if (result.status === "success" && Array.isArray(result.data)) {
+      // Reset ID hiện tại về null trước khi xóa DB để ép giao diện nạp lại dữ liệu mới
+      currentNotebookId = null;
+
       await db.notebooks.clear();
-      await db.notebooks.bulkAdd(result.data);
-      alert("Data restored successfully!");
-      closeCloudModal();
-      await loadNotebooksList();
       if (result.data.length > 0) {
-        await selectNotebook(result.data[0].id);
+        await db.notebooks.bulkPut(result.data);
       }
+
+      closeCloudModal();
+      closeSidebar();
+      await loadNotebooksList();
+      alert("Data restored successfully!");
     } else {
       alert(result.message || "Invalid restore data.");
     }
@@ -460,3 +475,4 @@ async function restoreCloudVersion(filename) {
     alert("Restore failed: " + err.message);
   }
 }
+ 
