@@ -47,11 +47,6 @@
 
     <div class="sidebar-footer">
       <button onclick="openCloudModal()" class="btn-cloud">☁️ Cloud Backup & Sync</button>
-      <div class="file-tools">
-        <button onclick="exportDataJSON()" class="btn-sub">📥 Export</button>
-        <button onclick="triggerImport()" class="btn-sub">📤 Import</button>
-        <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importDataJSON(event)">
-      </div>
     </div>
   </aside>
 
@@ -71,8 +66,6 @@
         <button onclick="openCanvasModal()" class="btn-chip">🎨 Draw</button>
         <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Math</button>
         <button onclick="openCloudModal()" class="btn-chip">☁️ Sync</button>
-        <button onclick="exportDataJSON()" class="btn-chip">📥 Export</button>
-        <button onclick="triggerImport()" class="btn-chip">📤 Import</button>
       </div>
     </header>
 

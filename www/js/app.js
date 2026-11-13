@@ -378,37 +378,3 @@ async function restoreCloudVersion(filename) {
     alert("Restore failed: " + err.message);
   }
 }
-
-// Local JSON Backup & Export
-async function exportDataJSON() {
-  const data = await db.notebooks.toArray();
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `SmartNote_Backup_${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-}
-
-function triggerImport() { document.getElementById("import-file-input").click(); }
-
-async function importDataJSON(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = async (evt) => {
-    try {
-      const data = JSON.parse(evt.target.result);
-      if (Array.isArray(data)) {
-        await db.notebooks.clear();
-        await db.notebooks.bulkAdd(data);
-        alert("Import successful!");
-        await loadNotebooksList();
-      }
-    } catch (err) {
-      alert("Invalid JSON file.");
-    }
-  };
-  reader.readAsText(file);
-}
