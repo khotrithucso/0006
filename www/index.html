@@ -65,6 +65,8 @@
       <div class="top-bar-tools">
         <button onclick="openCanvasModal()" class="btn-chip">🎨 Draw</button>
         <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Math</button>
+        <button onclick="printCurrentNote()" class="btn-chip">🖨️ Print</button>
+        <button onclick="exportHtmlNote()" class="btn-chip">📥 Export HTML</button>
         <button onclick="openCloudModal()" class="btn-chip">☁️ Sync</button>
       </div>
     </header>
@@ -81,6 +83,7 @@
       </div>
       <div class="footer-meta">
         <span>Smart Note Pro v2.0</span>
+        <span id="word-count-display">0 words | 0 chars</span>
         <span id="save-status">All changes saved</span>
       </div>
     </footer>

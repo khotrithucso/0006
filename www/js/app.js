@@ -22,7 +22,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   await loadNotebooksList();
 });
 
-// Compact Mobile-Optimized CKEditor Toolbar Setup
+// Comprehensive Mobile-Optimized CKEditor Toolbar Setup with Source HTML & Extended Tools
 function initCKEditor() {
   CKEDITOR.config.versionCheck = false;
   
@@ -32,11 +32,16 @@ function initCKEditor() {
     extraAllowedContent: "*(*);*{*}",
     versionCheck: false,
     toolbar: [
-      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "RemoveFormat"] },
-      { name: "paragraph", items: ["NumberedList", "BulletedList", "-", "Blockquote", "-", "JustifyLeft", "JustifyCenter", "JustifyRight"] },
-      { name: "insert", items: ["Image", "Table", "SpecialChar"] },
-      { name: "styles", items: ["Format"] },
-      { name: "colors", items: ["TextColor", "BGColor"] }
+      { name: "document", items: ["Source", "-", "Preview", "Print"] },
+      { name: "clipboard", items: ["Cut", "Copy", "Paste", "PasteText", "PasteFromWord", "-", "Undo", "Redo"] },
+      { name: "editing", items: ["Find", "Replace", "-", "SelectAll"] },
+      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "Subscript", "Superscript", "-", "RemoveFormat"] },
+      { name: "paragraph", items: ["NumberedList", "BulletedList", "-", "Outdent", "Indent", "-", "Blockquote", "-", "JustifyLeft", "JustifyCenter", "JustifyRight", "JustifyBlock"] },
+      { name: "links", items: ["Link", "Unlink"] },
+      { name: "insert", items: ["Image", "Table", "HorizontalRule", "SpecialChar", "Smiley"] },
+      { name: "styles", items: ["Styles", "Format", "Font", "FontSize"] },
+      { name: "colors", items: ["TextColor", "BGColor"] },
+      { name: "tools", items: ["Maximize", "ShowBlocks"] }
     ]
   });
 
@@ -48,6 +53,7 @@ function initCKEditor() {
   ckEditorInstance.on("change", () => {
     document.getElementById("save-status").textContent = "Unsaved changes...";
     triggerKaTeXRender();
+    updateWordCount();
   });
 }
 
@@ -67,6 +73,17 @@ function triggerKaTeXRender() {
       });
     }
   }, 350);
+}
+
+function updateWordCount() {
+  if (!ckEditorInstance) return;
+  const text = ckEditorInstance.document.getBody().getText() || "";
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const chars = text.length;
+  const wordCountEl = document.getElementById("word-count-display");
+  if (wordCountEl) {
+    wordCountEl.textContent = `${words} words | ${chars} chars`;
+  }
 }
 
 // Notebook Library CRUD
@@ -116,6 +133,11 @@ async function loadNotebooksList(filterText = "") {
 }
 
 async function createNewNotebook() {
+  // Save current note before creating new one
+  if (currentNotebookId) {
+    await saveCurrentNoteAuto();
+  }
+
   const timestamp = new Date().getTime();
   const id = await db.notebooks.add({
     title: "New Notebook " + new Date().toLocaleDateString("en-US"),
@@ -129,13 +151,23 @@ async function createNewNotebook() {
 }
 
 async function selectNotebook(id) {
+  if (currentNotebookId === id) return;
+
+  // Auto-save current note before switching
+  if (currentNotebookId) {
+    await saveCurrentNoteAuto();
+  }
+
   currentNotebookId = id;
   const nb = await db.notebooks.get(id);
   if (nb) {
     document.getElementById("note-title").value = nb.title || "";
-    ckEditorInstance.setData(nb.content || "", () => {
-      triggerKaTeXRender();
-    });
+    if (ckEditorInstance) {
+      ckEditorInstance.setData(nb.content || "", () => {
+        triggerKaTeXRender();
+        updateWordCount();
+      });
+    }
   }
   document.getElementById("save-status").textContent = "All changes saved";
   loadNotebooksList();
@@ -143,8 +175,9 @@ async function selectNotebook(id) {
 
 async function saveCurrentNoteAuto() {
   if (!currentNotebookId) return;
-  const title = document.getElementById("note-title").value;
-  const content = ckEditorInstance.getData();
+  const titleField = document.getElementById("note-title");
+  const title = titleField ? titleField.value : "Untitled Notebook";
+  const content = ckEditorInstance ? ckEditorInstance.getData() : "";
 
   await db.notebooks.update(currentNotebookId, {
     title: title,
@@ -152,15 +185,24 @@ async function saveCurrentNoteAuto() {
     updatedAt: new Date().getTime()
   });
 
-  document.getElementById("save-status").textContent = "All changes saved";
+  const statusEl = document.getElementById("save-status");
+  if (statusEl) statusEl.textContent = "All changes saved";
   loadNotebooksList();
 }
 
 async function deleteNotebook(id) {
   if (confirm("Are you sure you want to delete this notebook?")) {
     await db.notebooks.delete(id);
-    if (currentNotebookId === id) currentNotebookId = null;
+    if (currentNotebookId === id) {
+      currentNotebookId = null;
+    }
     await loadNotebooksList();
+    const notebooks = await db.notebooks.toArray();
+    if (notebooks.length > 0) {
+      await selectNotebook(notebooks[0].id);
+    } else {
+      await createNewNotebook();
+    }
   }
 }
 
@@ -182,7 +224,83 @@ function insertMathFormulaPrompt() {
   if (formula) {
     ckEditorInstance.insertHtml(` $$${formula}$$ `);
     triggerKaTeXRender();
+    updateWordCount();
   }
+}
+
+// Additional Utilities: Print and HTML Export
+function printCurrentNote() {
+  if (!ckEditorInstance) return;
+  const content = ckEditorInstance.getData();
+  const title = document.getElementById("note-title").value || "Notebook";
+  const printWindow = window.open("", "_blank");
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>${title}</title>
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+      <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; color: #111; }
+        h1 { margin-bottom: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>${title}</h1>
+      <div>${content}</div>
+      <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+      <script>
+        window.addEventListener("DOMContentLoaded", () => {
+          renderMathInElement(document.body, {
+            delimiters: [
+              { left: "$$", right: "$$", display: true },
+              { left: "$", right: "$", display: false }
+            ],
+            throwOnError: false
+          });
+          window.print();
+        });
+      </script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
+function exportHtmlNote() {
+  if (!ckEditorInstance) return;
+  const content = ckEditorInstance.getData();
+  const title = (document.getElementById("note-title").value || "notebook").replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  
+  const fullHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${document.getElementById("note-title").value || "Notebook"}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+<style>body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }</style>
+</head>
+<body>
+<h1>${document.getElementById("note-title").value || "Notebook"}</h1>
+${content}
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+<script>
+renderMathInElement(document.body, { delimiters: [{left:"$$",right:"$$",display:true},{left:"$",right:"$",display:false}], throwOnError:false });
+</script>
+</body>
+</html>`;
+
+  const blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${title}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // Canvas Drawing Engine
@@ -191,18 +309,27 @@ const ctx = canvas.getContext("2d");
 let isDrawing = false;
 
 function initCanvasDrawing() {
-  document.getElementById("brush-size").addEventListener("input", (e) => {
-    document.getElementById("brush-size-val").textContent = e.target.value + "px";
-  });
-  document.getElementById("brush-color").addEventListener("input", (e) => {
-    currentPenColor = e.target.value;
-    setPenMode();
-  });
+  const sizeInput = document.getElementById("brush-size");
+  if (sizeInput) {
+    sizeInput.addEventListener("input", (e) => {
+      const valEl = document.getElementById("brush-size-val");
+      if (valEl) valEl.textContent = e.target.value + "px";
+    });
+  }
+  const colorInput = document.getElementById("brush-color");
+  if (colorInput) {
+    colorInput.addEventListener("input", (e) => {
+      currentPenColor = e.target.value;
+      setPenMode();
+    });
+  }
 
-  canvas.addEventListener("pointerdown", startDrawing);
-  canvas.addEventListener("pointermove", draw);
-  canvas.addEventListener("pointerup", stopDrawing);
-  canvas.addEventListener("pointercancel", stopDrawing);
+  if (canvas) {
+    canvas.addEventListener("pointerdown", startDrawing);
+    canvas.addEventListener("pointermove", draw);
+    canvas.addEventListener("pointerup", stopDrawing);
+    canvas.addEventListener("pointercancel", stopDrawing);
+  }
 }
 
 function startDrawing(e) {
@@ -215,7 +342,8 @@ function startDrawing(e) {
 function draw(e) {
   if (!isDrawing) return;
   const pos = getCanvasPos(e);
-  const size = document.getElementById("brush-size").value;
+  const sizeEl = document.getElementById("brush-size");
+  const size = sizeEl ? sizeEl.value : 4;
 
   ctx.lineWidth = size;
   ctx.lineCap = "round";
@@ -245,19 +373,29 @@ function getCanvasPos(e) {
 
 function setEraserMode() {
   isEraserMode = true;
-  document.getElementById("btn-eraser").classList.add("active");
-  document.getElementById("btn-pen").classList.remove("active");
+  const eraserBtn = document.getElementById("btn-eraser");
+  const penBtn = document.getElementById("btn-pen");
+  if (eraserBtn) eraserBtn.classList.add("active");
+  if (penBtn) penBtn.classList.remove("active");
 }
 
 function setPenMode() {
   isEraserMode = false;
-  document.getElementById("btn-pen").classList.add("active");
-  document.getElementById("btn-eraser").classList.remove("active");
+  const eraserBtn = document.getElementById("btn-eraser");
+  const penBtn = document.getElementById("btn-pen");
+  if (penBtn) penBtn.classList.add("active");
+  if (eraserBtn) eraserBtn.classList.remove("active");
 }
 
 function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
-function openCanvasModal() { document.getElementById("canvas-modal").style.display = "flex"; }
-function closeCanvasModal() { document.getElementById("canvas-modal").style.display = "none"; }
+function openCanvasModal() { 
+  const modal = document.getElementById("canvas-modal");
+  if (modal) modal.style.display = "flex"; 
+}
+function closeCanvasModal() { 
+  const modal = document.getElementById("canvas-modal");
+  if (modal) modal.style.display = "none"; 
+}
 
 function insertDrawingToEditor() {
   const dataURL = canvas.toDataURL("image/png");
@@ -265,15 +403,24 @@ function insertDrawingToEditor() {
   clearCanvas();
   closeCanvasModal();
   saveCurrentNoteAuto();
+  updateWordCount();
 }
 
 // Cloud Backup & Sync Engine
-function openCloudModal() { document.getElementById("cloud-modal").style.display = "flex"; }
-function closeCloudModal() { document.getElementById("cloud-modal").style.display = "none"; }
+function openCloudModal() { 
+  const modal = document.getElementById("cloud-modal");
+  if (modal) modal.style.display = "flex"; 
+}
+function closeCloudModal() { 
+  const modal = document.getElementById("cloud-modal");
+  if (modal) modal.style.display = "none"; 
+}
 
 async function performCloudBackup() {
-  const email = document.getElementById("cloud-email").value;
-  const password = document.getElementById("cloud-pass").value;
+  const emailEl = document.getElementById("cloud-email");
+  const passEl = document.getElementById("cloud-pass");
+  const email = emailEl ? emailEl.value : "";
+  const password = passEl ? passEl.value : "";
 
   if (!email || !password) {
     alert("Please enter both email and password.");
@@ -301,8 +448,10 @@ async function performCloudBackup() {
 }
 
 async function fetchCloudVersions() {
-  const email = document.getElementById("cloud-email").value;
-  const password = document.getElementById("cloud-pass").value;
+  const emailEl = document.getElementById("cloud-email");
+  const passEl = document.getElementById("cloud-pass");
+  const email = emailEl ? emailEl.value : "";
+  const password = passEl ? passEl.value : "";
 
   if (!email || !password) {
     alert("Please enter credentials first.");
@@ -324,19 +473,22 @@ async function fetchCloudVersions() {
     
     if (result.status === "success") {
       const listEl = document.getElementById("cloud-versions-list");
-      listEl.innerHTML = "";
-      document.getElementById("cloud-versions-wrapper").style.display = "block";
+      const wrapperEl = document.getElementById("cloud-versions-wrapper");
+      if (wrapperEl) wrapperEl.style.display = "block";
+      if (listEl) {
+        listEl.innerHTML = "";
 
-      if (result.backups.length === 0) {
-        listEl.innerHTML = "<li style='padding:10px;'>No backups found.</li>";
-        return;
+        if (result.backups.length === 0) {
+          listEl.innerHTML = "<li style='padding:10px;'>No backups found.</li>";
+          return;
+        }
+
+        result.backups.forEach(item => {
+          const li = document.createElement("li");
+          li.innerHTML = `<span>📅 ${item.timestamp}</span> <button class='btn-tool-sm' onclick='restoreCloudVersion("${item.filename}")'>Restore</button>`;
+          listEl.appendChild(li);
+        });
       }
-
-      result.backups.forEach(item => {
-        const li = document.createElement("li");
-        li.innerHTML = `<span>📅 ${item.timestamp}</span> <button class='btn-tool-sm' onclick='restoreCloudVersion("${item.filename}")'>Restore</button>`;
-        listEl.appendChild(li);
-      });
     } else {
       alert(result.message);
     }
@@ -346,8 +498,10 @@ async function fetchCloudVersions() {
 }
 
 async function restoreCloudVersion(filename) {
-  const email = document.getElementById("cloud-email").value;
-  const password = document.getElementById("cloud-pass").value;
+  const emailEl = document.getElementById("cloud-email");
+  const passEl = document.getElementById("cloud-pass");
+  const email = emailEl ? emailEl.value : "";
+  const password = passEl ? passEl.value : "";
 
   if (!confirm("Restoring will overwrite your current local data. Continue?")) return;
 
@@ -371,6 +525,9 @@ async function restoreCloudVersion(filename) {
       alert("Data restored successfully!");
       closeCloudModal();
       await loadNotebooksList();
+      if (result.data.length > 0) {
+        await selectNotebook(result.data[0].id);
+      }
     } else {
       alert(result.message || "Invalid restore data.");
     }
