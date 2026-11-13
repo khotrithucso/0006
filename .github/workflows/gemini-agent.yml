@@ -40,9 +40,25 @@ jobs:
           set -o pipefail
           RAW_PROMPT="${COMMENT_BODY:-$ISSUE_BODY}"
           CLEAN_PROMPT="${RAW_PROMPT//@gemini-cli/}"
-          FULL_PROMPT="Bạn là AI coding agent đang làm việc trực tiếp trong thư mục dự án trên GitHub Actions. Hãy đọc các file liên quan và chỉnh sửa trực tiếp mã nguồn trên ổ đĩa để hoàn thành yêu cầu sau (không chỉnh sửa thư mục .github/workflows trừ khi được yêu cầu rõ): $CLEAN_PROMPT"
+          FULL_PROMPT="Bạn là AI coding agent đang làm việc trực tiếp trong thư mục dự án trên GitHub Actions. Hãy đọc các file mã nguồn chính và chỉnh sửa trực tiếp trên ổ đĩa để hoàn thành yêu cầu sau (không sửa thư mục .github/workflows, android hoặc node_modules trừ khi được yêu cầu rõ): $CLEAN_PROMPT"
 
-          npx -y @google/gemini-cli -y -p="$FULL_PROMPT" 2>&1 | tee /tmp/gemini_output.txt
+          SUCCESS=false
+          for i in 1 2 3; do
+            echo "=== Lần thử $i ==="
+            if [ "$i" -eq 2 ]; then
+              echo "Chuyển sang model gemini-2.5-flash để tránh quá tải..."
+              npx -y @google/gemini-cli -y -m gemini-2.5-flash -p="$FULL_PROMPT" 2>&1 | tee /tmp/gemini_output.txt && SUCCESS=true && break
+            else
+              npx -y @google/gemini-cli -y -p="$FULL_PROMPT" 2>&1 | tee /tmp/gemini_output.txt && SUCCESS=true && break
+            fi
+            echo "Server Gemini đang quá tải (503), đợi 20 giây rồi thử lại..."
+            sleep 20
+          done
+
+          if [ "$SUCCESS" != "true" ]; then
+            echo "Đã thử 3 lần nhưng API Gemini vẫn quá tải."
+            exit 1
+          fi
 
       - name: Commit and Push changes
         id: git_push
