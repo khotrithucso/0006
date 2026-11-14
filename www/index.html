@@ -1,13 +1,35 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Smart Note Pro V2.1</title>
-  
+  <title>Smart Note Pro V4</title>
+
+  <!-- CENTRAL APP & ADMOB CONFIGURATION -->
+  <script>
+    window.APP_CONFIG = {
+      appId: "0006",
+      version: "4.0.0",
+      securityToken: "PhuongDevNe",
+      backupUrl: "https://khotrithucso.io.vn/apps/0006/backup.php",
+      restoreUrl: "https://khotrithucso.io.vn/apps/0006/restore.php",
+      admob: {
+        // Google Dev Test IDs (Swap with real AdMob IDs before Play Store release)
+        bannerId: "ca-app-pub-3940256099942544/6300978111",
+        interstitialId: "ca-app-pub-3940256099942544/1033173712",
+        isTesting: true,
+        interstitialInterval: 4
+      }
+    };
+  </script>
+
+  <!-- Modern Typography (Online Google Fonts + Offline System Fallback) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <!-- CKEditor 4 Full CDN -->
   <script src="https://cdn.ckeditor.com/4.22.1/full/ckeditor.js"></script>
-  
+
   <!-- KaTeX Math Renderer -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
@@ -15,258 +37,271 @@
 
   <!-- Dexie.js (IndexedDB Engine) -->
   <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
-  
+
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-  <!-- Sidebar Overlay -->
+  <!-- Floating Toast Container -->
+  <div id="toast-container"></div>
+
+  <!-- Sidebar Drawer Backdrop -->
   <div id="sidebar-overlay" onclick="closeSidebar()"></div>
 
-  <!-- Sidebar Drawer: Notebook Library -->
+  <!-- Left Studio Drawer: Notebooks & Pages -->
   <aside id="sidebar">
     <div class="sidebar-header">
       <div class="brand">
-        <span class="brand-icon">📚</span>
+        <div class="brand-logo">✦</div>
         <div>
-          <h3>Notebook Library</h3>
-          <small>Smart Note Pro v2.1</small>
+          <h3>Smart Note Pro</h3>
+          <small>Aurora Studio v4.0</small>
         </div>
       </div>
-      <button class="btn-close" onclick="closeSidebar()">✕</button>
+      <button class="btn-icon-round" onclick="closeSidebar()" title="Close Drawer">✕</button>
     </div>
-    
-    <div class="sidebar-actions">
-      <button class="btn-create" onclick="createNewNotebook()">+ Tạo Sổ Tay Mới</button>
-      <div class="search-box">
-        <input type="text" id="search-input" placeholder="Tìm kiếm ghi chú..." oninput="onSearchInput(this.value)">
+
+    <div class="sidebar-search">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-input" placeholder="Search notebooks & pages..." oninput="onSearchInput(this.value)">
+    </div>
+
+    <!-- Section 1: Custom Notebooks -->
+    <div class="sidebar-section">
+      <div class="section-header">
+        <span>MY NOTEBOOKS</span>
+        <button class="btn-pill-add" onclick="openNotebookModal('create')">+ New</button>
       </div>
+      <ul id="notebook-list" class="bento-list list-notebooks"></ul>
     </div>
 
-    <ul id="notebook-list"></ul>
+    <!-- Section 2: Pages Inside Active Notebook -->
+    <div class="sidebar-section flex-grow">
+      <div class="section-header">
+        <span id="active-notebook-label">PAGES</span>
+        <button class="btn-pill-add btn-accent" onclick="createNewPage()">+ Page</button>
+      </div>
+      <ul id="page-list" class="bento-list list-pages"></ul>
+    </div>
 
+    <!-- Sidebar Footer: Cloud & Local Backup -->
     <div class="sidebar-footer">
-      <button onclick="openMediaModal('premium')" class="btn-premium-side">💎 Nâng cấp +1 GB ($0.50)</button>
-      <button onclick="openCloudModal()" class="btn-cloud">☁️ Cloud Backup & Sync</button>
+      <button onclick="openCloudModal()" class="btn-cloud-gradient">
+        <span>☁️ Cloud Sync &amp; Backup</span>
+      </button>
+      <div class="footer-grid-btns">
+        <button onclick="exportDataJSON()" class="btn-ghost">📥 Export JSON</button>
+        <button onclick="triggerImport()" class="btn-ghost">📤 Import JSON</button>
+        <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importDataJSON(event)">
+      </div>
     </div>
   </aside>
 
   <!-- Main Workspace -->
   <main id="main-content">
-    <!-- Top Header: Smart Adaptive Layout -->
-    <header class="top-bar">
-      <!-- Row 1: Primary Controls (Always Visible) -->
-      <div class="top-bar-main">
-        <button class="btn-menu" onclick="openSidebar()">☰</button>
-        <input type="text" id="note-title" placeholder="Tiêu đề sổ tay..." onchange="saveCurrentNoteAuto()">
-        <button onclick="saveCurrentNoteAuto()" class="btn-save">💾 Lưu</button>
+    <!-- Top Glassmorphic Studio Bar -->
+    <header class="studio-header">
+      <!-- Row 1: Drawer Toggle, Active Notebook Context Pill, Mode Switcher -->
+      <div class="header-context-row">
+        <button class="btn-drawer" onclick="openSidebar()" aria-label="Open Notebooks">
+          <span></span><span></span><span></span>
+        </button>
+
+        <!-- Clickable Notebook Badge (Opens Rename/Customize Notebook Modal) -->
+        <button class="notebook-context-pill" onclick="openEditActiveNotebook()" title="Tap to rename or customize this notebook">
+          <span id="header-nb-icon" class="nb-dot">📘</span>
+          <span id="header-nb-name" class="nb-name-text">General Notebook</span>
+          <span class="nb-edit-badge">✏️</span>
+        </button>
+
+        <!-- Segmented Write / Read Switcher -->
+        <div class="mode-switcher">
+          <button id="btn-mode-write" class="mode-btn active" onclick="setWorkspaceMode('write')">✏️ Write</button>
+          <button id="btn-mode-read" class="mode-btn" onclick="setWorkspaceMode('read')">👁️ Read</button>
+        </div>
       </div>
 
-      <!-- Row 2: Touch-Scrollable Action Tools -->
-      <div class="top-bar-tools" id="top-bar-tools">
-        <button onclick="openMediaModal('library')" class="btn-chip">📁 Ảnh/File</button>
-        <button onclick="openShareModal()" class="btn-chip btn-chip-share">🔗 Chia sẻ</button>
-        <button onclick="openCanvasModal()" class="btn-chip">🎨 Vẽ</button>
-        <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Toán</button>
-        <button onclick="toggleToolbarExpand()" id="btn-toggle-toolbar" class="btn-chip">⊞ Tools</button>
-        <button onclick="openMediaModal('premium')" class="btn-chip btn-chip-pro">💎 +1GB</button>
+      <!-- Row 2: Page Title Input & Save Action -->
+      <div class="header-title-row">
+        <input type="text" id="page-title" placeholder="Enter page title..." oninput="scheduleAutoSave()">
+        <button onclick="saveCurrentPage(true)" class="btn-save-glow">💾 Save</button>
       </div>
-    </header> 
 
-    <!-- Content Editor Wrapper -->
-    <div class="editor-wrapper">
-      <textarea id="editor" name="editor"></textarea>
-    </div>
-
-    <!-- Bottom App Footer -->
-    <footer class="app-footer" id="app-footer">
-      <div id="admob-banner-container" class="ad-container">
-        <span class="ad-placeholder">Ad Space - Powered by AdMob</span>
+      <!-- Row 3: Touch-Scrollable Creative Studio Tools -->
+      <div class="studio-tools-strip">
+        <button onclick="toggleEditorToolbar()" id="btn-toggle-toolbar" class="tool-chip">🧰 Hide Toolbar</button>
+        <button onclick="openPasteHtmlModal()" class="tool-chip chip-highlight">📋 Paste AI HTML</button>
+        <button onclick="triggerPhotoPicker()" class="tool-chip">📷 Photo</button>
+        <button onclick="openCanvasModal()" class="tool-chip">🎨 Sketch</button>
+        <button onclick="insertMathFormulaPrompt()" class="tool-chip">∑ Math</button>
+        <button onclick="insertCalloutBox()" class="tool-chip">💡 Callout</button>
+        <button onclick="toggleAppTheme()" id="btn-theme-toggle" class="tool-chip">🌙 Dark Mode</button>
+        <input type="file" id="photo-picker-input" accept="image/*" style="display: none;" onchange="handlePhotoUpload(event)">
       </div>
-      <div class="footer-meta">
-        <span>Smart Note Pro v2.1</span>
-        <span id="word-count-display">0 từ | 0 ký tự</span>
-        <span id="save-status">Đã lưu</span>
+    </header>
+
+    <!-- Bento Workspace Card -->
+    <section class="workspace-stage">
+      <!-- Mode 1: Rich CKEditor -->
+      <div id="editor-wrapper" class="editor-wrapper">
+        <textarea id="editor" name="editor"></textarea>
+      </div>
+
+      <!-- Mode 2: Distraction-Free Reader View -->
+      <div id="reader-wrapper" class="reader-wrapper" style="display: none;">
+        <div class="reader-toolbar">
+          <span class="reader-pill">📖 Reader Mode • KaTeX Rendered</span>
+          <div class="zoom-group">
+            <button onclick="changeReaderFontSize(-1)" class="btn-zoom">A-</button>
+            <button onclick="changeReaderFontSize(1)" class="btn-zoom">A+</button>
+          </div>
+        </div>
+        <article class="reader-paper">
+          <h1 id="reader-title"></h1>
+          <div id="reader-meta-line" class="reader-meta-line"></div>
+          <div id="reader-content" class="reader-body"></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Bottom Status & AdMob Footer -->
+    <footer id="app-footer" class="studio-footer">
+      <div id="admob-banner-container" class="ad-banner-slot">
+        <span>AdMob Banner Space • Smart Note Pro</span>
+      </div>
+      <div class="status-bar">
+        <span id="word-stats">0 words • 1 min read</span>
+        <span class="save-indicator">
+          <span id="save-dot" class="dot-saved"></span>
+          <span id="save-status">Saved</span>
+        </span>
       </div>
     </footer>
   </main>
 
-  <!-- Share Note Web Link Modal -->
-  <div id="share-modal" class="modal">
-    <div class="modal-card">
+  <!-- MODAL 1: Create / Rename & Customize Notebook -->
+  <div id="notebook-modal" class="modal">
+    <div class="modal-card modal-sm">
       <div class="modal-header">
-        <h3>🔗 Chia sẻ Trang Web Ghi Chú</h3>
-        <button class="btn-close" onclick="closeShareModal()">✕</button>
+        <h3 id="nb-modal-title">📓 Create New Notebook</h3>
+        <button class="btn-icon-round" onclick="closeNotebookModal()">✕</button>
       </div>
-
       <div class="modal-body">
-        <p id="share-status-text" style="font-size: 0.85rem; color: #334155;">
-          ⏳ Đang tạo liên kết chia sẻ công khai...
-        </p>
+        <label class="field-label">Notebook Name</label>
+        <input type="text" id="nb-name-input" class="studio-input" placeholder="e.g., Quantum Physics, Coding Notes...">
 
-        <div class="share-link-box" id="share-link-box" style="display: none;">
-          <input type="text" id="share-url-input" readonly onclick="this.select()">
-          <div class="cloud-actions" style="margin-top: 8px;">
-            <button onclick="copyShareUrl()" id="btn-copy-share" class="btn-primary-cloud">📋 Sao chép Link</button>
-            <button onclick="nativeShareUrl()" class="btn-save" style="flex: 1;">📤 Gửi đi</button>
-            <button onclick="openShareUrlInBrowser()" class="btn-secondary-cloud">🌐 Xem thử</button>
-          </div>
-          <p style="font-size: 0.74rem; color: #64748b; margin-top: 8px;">
-            💡 Khi bạn chỉnh sửa sổ tay này và bấm <b>🔗 Chia sẻ</b> lại, nội dung trên link cũ sẽ tự động cập nhật mới nhất.
-          </p>
+        <label class="field-label">Cover Icon</label>
+        <div id="nb-icon-picker" class="icon-grid">
+          <button type="button" class="icon-opt selected" data-icon="📘">📘</button>
+          <button type="button" class="icon-opt" data-icon="🧬">🧬</button>
+          <button type="button" class="icon-opt" data-icon="💻">💻</button>
+          <button type="button" class="icon-opt" data-icon="📐">📐</button>
+          <button type="button" class="icon-opt" data-icon="🎨">🎨</button>
+          <button type="button" class="icon-opt" data-icon="🚀">🚀</button>
+          <button type="button" class="icon-opt" data-icon="🧠">🧠</button>
+          <button type="button" class="icon-opt" data-icon="💼">💼</button>
+        </div>
+
+        <label class="field-label">Accent Color</label>
+        <div id="nb-color-picker" class="color-grid">
+          <button type="button" class="color-opt selected" data-color="#6366f1" style="background:#6366f1;"></button>
+          <button type="button" class="color-opt" data-color="#0ea5e9" style="background:#0ea5e9;"></button>
+          <button type="button" class="color-opt" data-color="#10b981" style="background:#10b981;"></button>
+          <button type="button" class="color-opt" data-color="#f59e0b" style="background:#f59e0b;"></button>
+          <button type="button" class="color-opt" data-color="#ec4899" style="background:#ec4899;"></button>
+          <button type="button" class="color-opt" data-color="#8b5cf6" style="background:#8b5cf6;"></button>
         </div>
       </div>
-
       <div class="modal-footer">
-        <button onclick="closeShareModal()" class="btn-sub">Đóng</button>
+        <button onclick="closeNotebookModal()" class="btn-ghost">Cancel</button>
+        <button onclick="saveNotebookModal()" class="btn-save-glow">Save Notebook</button>
       </div>
     </div>
   </div>
 
-  <!-- Canvas Drawing Modal -->
+  <!-- MODAL 2: Paste Raw HTML / AI Lesson -->
+  <div id="paste-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📋 Paste AI Lesson / Full HTML</h3>
+        <button class="btn-icon-round" onclick="closePasteHtmlModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Paste raw HTML copied from Gemini or ChatGPT. Headings, tables, code blocks, and LaTeX math will render automatically.</p>
+        <textarea id="raw-html-input" class="studio-textarea" rows="9" placeholder="<div>Paste HTML or LaTeX content here...</div>"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button onclick="closePasteHtmlModal()" class="btn-ghost">Cancel</button>
+        <button onclick="insertRawHtmlToEditor()" class="btn-save-glow">Insert &amp; Render</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: Whiteboard Hand-Drawing Canvas -->
   <div id="canvas-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>🎨 Bảng Vẽ Tay</h3>
-        <button class="btn-close" onclick="closeCanvasModal()">✕</button>
-      </div>
-      
-      <div class="canvas-toolbar">
-        <label>Màu: <input type="color" id="brush-color" value="#1e293b"></label>
-        <label>Cỡ: 
-          <input type="range" id="brush-size" min="1" max="25" value="4">
-          <span id="brush-size-val">4px</span>
-        </label>
-        <button onclick="setEraserMode()" id="btn-eraser" class="btn-tool-sm">🧹 Tẩy</button>
-        <button onclick="setPenMode()" id="btn-pen" class="btn-tool-sm active">✏️ Bút</button>
-        <button onclick="clearCanvas()" class="btn-tool-sm">🗑️ Xóa</button>
+        <h3>🎨 Whiteboard Sketch Studio</h3>
+        <button class="btn-icon-round" onclick="closeCanvasModal()">✕</button>
       </div>
 
-      <div class="canvas-container">
-        <canvas id="drawing-board" width="600" height="420"></canvas>
+      <div class="canvas-toolbar">
+        <input type="color" id="brush-color" value="#0f172a" title="Brush Color">
+        <div class="size-slider">
+          <input type="range" id="brush-size" min="1" max="24" value="4">
+          <span id="brush-size-val">4px</span>
+        </div>
+        <button onclick="setPenMode()" id="btn-pen" class="canvas-btn active">✏️ Pen</button>
+        <button onclick="setEraserMode()" id="btn-eraser" class="canvas-btn">🧹 Eraser</button>
+        <button onclick="toggleCanvasGrid()" id="btn-grid" class="canvas-btn">🌐 Grid</button>
+        <button onclick="undoCanvasStroke()" class="canvas-btn">↩️ Undo</button>
+        <button onclick="clearCanvas()" class="canvas-btn">🗑️ Clear</button>
+      </div>
+
+      <div class="canvas-stage">
+        <canvas id="drawing-board" width="640" height="440"></canvas>
       </div>
 
       <div class="modal-footer">
-        <button onclick="closeCanvasModal()" class="btn-sub">Hủy</button>
-        <button onclick="insertDrawingToEditor()" class="btn-save">Chèn vào bài</button>
+        <button onclick="closeCanvasModal()" class="btn-ghost">Cancel</button>
+        <button onclick="insertDrawingToEditor()" class="btn-save-glow">Insert Sketch</button>
       </div>
     </div>
   </div>
 
-  <!-- Cloud Backup & Restore Modal -->
+  <!-- MODAL 4: Cloud Backup & Restore -->
   <div id="cloud-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>☁️ Sao lưu & Khôi phục Đám mây</h3>
-        <button class="btn-close" onclick="closeCloudModal()">✕</button>
+        <h3>☁️ Cloud Backup &amp; Restore</h3>
+        <button class="btn-icon-round" onclick="closeCloudModal()">✕</button>
       </div>
-      
+
       <div class="modal-body">
-        <div class="auth-box">
-          <input type="email" id="cloud-email" placeholder="Email tài khoản...">
-          <input type="password" id="cloud-pass" placeholder="Mật khẩu...">
+        <p class="modal-hint">Sign in with your email and password to sync all notebooks and pages securely to the cloud.</p>
+        <div class="auth-stack">
+          <input type="email" id="cloud-email" class="studio-input" placeholder="Account Email...">
+          <input type="password" id="cloud-pass" class="studio-input" placeholder="Account Password...">
+          <input type="text" id="cloud-label" class="studio-input" placeholder="Optional Version Label (e.g., Physics Midterm)...">
         </div>
 
-        <div class="cloud-actions">
-          <button onclick="performCloudBackup()" class="btn-primary-cloud">📤 Sao lưu lên Cloud</button>
-          <button onclick="fetchCloudVersions()" class="btn-secondary-cloud">🔍 Tìm bản sao lưu</button>
+        <div class="cloud-btn-row">
+          <button onclick="performCloudBackup()" class="btn-cloud-action primary">📤 Backup Now</button>
+          <button onclick="fetchCloudVersions()" class="btn-cloud-action secondary">🔍 Load Versions</button>
         </div>
 
-        <div id="cloud-versions-wrapper" style="display: none; margin-top: 15px;">
-          <h4>Các bản sao lưu hiện có:</h4>
-          <ul id="cloud-versions-list"></ul>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button onclick="closeCloudModal()" class="btn-sub">Đóng</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Media Library & Premium Storage Modal -->
-  <div id="media-modal" class="modal">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3>📁 Kho Lưu Trữ & Gói Mở Rộng</h3>
-        <button class="btn-close" onclick="closeMediaModal()">✕</button>
-      </div>
-
-      <div class="modal-main-tabs">
-        <button id="tab-btn-library" class="modal-main-tab active" onclick="switchMediaModalTab('library')">
-          📂 Thư viện Ảnh & File
-        </button>
-        <button id="tab-btn-premium" class="modal-main-tab tab-premium-highlight" onclick="switchMediaModalTab('premium')">
-          💎 Premium (+1GB)
-        </button>
-      </div>
-
-      <div class="modal-body media-modal-body">
-        <div class="storage-quota-box">
-          <div class="quota-header">
-            <span id="media-account-badge">📱 Khách (100MB Free)</span>
-            <span id="media-quota-text">0 MB / 100 MB</span>
-          </div>
-          <div class="quota-bar-bg">
-            <div id="media-quota-fill" class="quota-bar-fill" style="width: 0%;"></div>
-          </div>
-          <div id="media-upgrade-banner" class="upgrade-banner" style="display: none;">
-            ⚠️ Bộ nhớ sắp đầy! Chuyển sang tab <b>💎 Premium (+1GB)</b> để mở rộng thêm 1 GB chỉ với $0.50.
-          </div>
-        </div>
-
-        <!-- TAB 1: MEDIA & FILE LIBRARY -->
-        <div id="panel-media-library">
-          <div class="media-upload-bar">
-            <input type="file" id="media-file-input" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip,.rar,.7z,.mp3,.mp4" style="display: none;" onchange="handleMediaFileSelect(event)">
-            <button onclick="document.getElementById('media-file-input').click()" id="btn-trigger-upload" class="btn-primary-cloud">
-              ⬆️ Tải Ảnh / File từ máy lên
-            </button>
-          </div>
-
-          <div class="media-filter-tabs" style="margin-top: 10px;">
-            <button class="media-tab active" onclick="filterMediaLibrary('all', this)">Tất cả</button>
-            <button class="media-tab" onclick="filterMediaLibrary('image', this)">🖼️ Ảnh</button>
-            <button class="media-tab" onclick="filterMediaLibrary('file', this)">📄 Tài liệu</button>
-          </div>
-
-          <div id="media-library-grid" class="media-grid" style="margin-top: 10px;">
-            <p class="media-empty-msg">Đang tải thư viện...</p>
-          </div>
-        </div>
-
-        <!-- TAB 2: PREMIUM +1 GB ($0.50) UPGRADE -->
-        <div id="panel-media-premium" style="display: none;">
-          <div class="premium-card">
-            <div class="premium-badge">GÓI MỞ RỘNG ĐÁM MÂY</div>
-            <h4 class="premium-title">Thêm +1 GB Bộ Nhớ Lưu Trữ</h4>
-            <div class="premium-price">$0.50 <span>/ gói (+1,024 MB)</span></div>
-            <ul class="premium-features">
-              <li>✅ Cộng thêm ngay <b>+1,024 MB</b> vào 100 MB miễn phí có sẵn</li>
-              <li>✅ Lưu giữ nguyên chất lượng ảnh gốc & tài liệu nặng</li>
-              <li>✅ Cho phép mua cộng dồn nhiều gói (+2GB, +3GB...)</li>
-              <li>✅ Gắn cố định vào Email, đổi điện thoại không mất dữ liệu</li>
-            </ul>
-
-            <div class="premium-email-bind">
-              <label for="premium-email-input">Email nhận gói mở rộng:</label>
-              <input type="email" id="premium-email-input" placeholder="Nhập Gmail của bạn...">
-            </div>
-
-            <button onclick="purchasePlus1GBPack()" id="btn-buy-1gb" class="btn-buy-premium">
-              🚀 Mở rộng thêm +1 GB ngay ($0.50)
-            </button>
-            <p class="premium-note">Hỗ trợ kích hoạt qua Google Play / Chuyển khoản nhanh.</p>
-          </div>
+        <div id="cloud-versions-wrapper" style="display: none;">
+          <label class="field-label" style="margin-top: 8px;">Saved Cloud Snapshots</label>
+          <ul id="cloud-versions-list" class="cloud-version-list"></ul>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button onclick="closeMediaModal()" class="btn-sub">Đóng</button>
+        <button onclick="closeCloudModal()" class="btn-ghost">Close</button>
       </div>
     </div>
   </div>
- 
+
   <script src="js/app.js"></script>
 </body>
 </html>

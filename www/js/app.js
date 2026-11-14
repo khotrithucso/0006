@@ -1,128 +1,96 @@
-// Disable CKEditor Version Warning Banner globally
 if (window.CKEDITOR) {
   CKEDITOR.config.versionCheck = false;
 }
 
-// Initialize IndexedDB via Dexie
-const db = new Dexie("App0006SmartNotebookDB");
+// 1. Initialize IndexedDB (Notebooks with Custom Icon & Color -> Pages)
+const db = new Dexie("App0006SmartNotebookV4");
 db.version(1).stores({
-  notebooks: "++id, title, content, createdAt, updatedAt"
+  notebooks: "++id, title, icon, color, createdAt, updatedAt",
+  pages: "++id, notebookId, title, content, createdAt, updatedAt"
 });
 
 let currentNotebookId = null;
+let currentPageId = null;
 let ckEditorInstance = null;
-let isEraserMode = false;
-let currentPenColor = "#1e293b";
+let workspaceMode = "write"; // 'write' | 'read'
+let toolbarVisible = true;
+let readerFontSize = 16;
 let autoSaveTimer = null;
+let actionCounter = 0;
 
-const SECRET_TOKEN    = "PhuongDevNe";
-const BACKUP_API_URL  = "https://khotrithucso.io.vn/apps/0006/backup.php";
-const RESTORE_API_URL = "https://khotrithucso.io.vn/apps/0006/restore.php";
-const STORAGE_API_URL = "https://khotrithucso.io.vn/apps/0006/storage.php";
-const SHARE_API_URL   = "https://khotrithucso.io.vn/apps/0006/share.php";
+// Notebook Modal State
+let nbModalMode = "create"; // 'create' | 'edit'
+let editingNotebookId = null;
+let selectedNbIcon = "📘";
+let selectedNbColor = "#6366f1";
 
-let cachedMediaItems   = [];
-let currentMediaFilter = "all";
+// Canvas Drawing State
+let isEraserMode = false;
+let isGridEnabled = false;
+let currentPenColor = "#0f172a";
+let canvasUndoStack = [];
 
-// ================= HELPER UTILITIES =================
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function getOrCreateDeviceUUID() {
-  let uuid = localStorage.getItem("sn_device_uuid");
-  if (!uuid) {
-    uuid = "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 10);
-    localStorage.setItem("sn_device_uuid", uuid);
-  }
-  return uuid;
-}
-
-function getSavedAccount() {
-  return {
-    uuid: getOrCreateDeviceUUID(),
-    email: (localStorage.getItem("sn_user_email") || "").trim(),
-    password: (localStorage.getItem("sn_user_pass") || "").trim()
-  };
-}
-
-function saveAccountCredentials(email, password) {
-  if (email) localStorage.setItem("sn_user_email", email.trim());
-  if (password) localStorage.setItem("sn_user_pass", password.trim());
-}
-
-// Kích hoạt tải file trực tiếp ra ngoài khung CKEditor (hoạt động cả trên WebView Android lẫn trình duyệt)
-function triggerDirectFileDownload(fileUrl, fileName) {
-  if (!fileUrl) return;
-  const opened = window.open(fileUrl, "_blank", "noopener");
-  if (!opened) {
-    const tempLink = document.createElement("a");
-    tempLink.href = fileUrl;
-    tempLink.target = "_blank";
-    tempLink.rel = "noopener";
-    if (fileName) tempLink.setAttribute("download", fileName);
-    document.body.appendChild(tempLink);
-    tempLink.click();
-    document.body.removeChild(tempLink);
-  }
-}
-
-// ================= SMART KEYBOARD & VIEWPORT ADAPTATION =================
-function initSmartMobileViewport() {
-  const initialHeight = window.innerHeight;
-
-  function adjustViewport() {
-    if (window.visualViewport) {
-      const vvHeight = window.visualViewport.height;
-      document.body.style.height = vvHeight + "px";
-
-      if (initialHeight - vvHeight > 140) {
-        document.body.classList.add("keyboard-open");
-      } else {
-        document.body.classList.remove("keyboard-open");
-      }
-    }
-  }
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", adjustViewport);
-    window.visualViewport.addEventListener("scroll", () => window.scrollTo(0, 0));
-  }
-  window.addEventListener("resize", adjustViewport);
-}
-
-function toggleToolbarExpand() {
-  const isExpanded = document.body.classList.toggle("toolbar-expanded");
-  const btn = document.getElementById("btn-toggle-toolbar");
-  if (btn) {
-    btn.textContent = isExpanded ? "⊟ Gọn Tools" : "⊞ Tools";
-  }
-}
-
-// ================= APPLICATION ENTRYPOINT =================
+// 2. App Bootstrapping
 window.addEventListener("DOMContentLoaded", async () => {
-  initSmartMobileViewport();
-
-  const acc = getSavedAccount();
-  const emailEl = document.getElementById("cloud-email");
-  const passEl = document.getElementById("cloud-pass");
-  const premEmailEl = document.getElementById("premium-email-input");
-  if (emailEl && acc.email) emailEl.value = acc.email;
-  if (passEl && acc.password) passEl.value = acc.password;
-  if (premEmailEl && acc.email) premEmailEl.value = acc.email;
-
+  applySavedTheme();
+  initNotebookCustomizerPickers();
   initCKEditor();
   initCanvasDrawing();
-  await loadNotebooksList();
+  restoreSavedCloudEmail();
+  await bootstrapData();
+  initAdMobNative();
 });
 
-// ================= CKEDITOR & KATEX ENGINE =================
+// 3. Toast Notification Engine
+function showToast(message, type = "info") {
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = `toast-item ${type}`;
+  const icon = type === "success" ? "✓" : type === "error" ? "✕" : "✦";
+  toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(-8px)";
+    toast.style.transition = "all 0.22s ease";
+    setTimeout(() => toast.remove(), 240);
+  }, 2400);
+}
+
+// 4. Dual Theme Engine (Light Paper vs. Midnight Obsidian)
+function applySavedTheme() {
+  const saved = localStorage.getItem("app0006_theme") || "light";
+  document.documentElement.setAttribute("data-theme", saved);
+  const btn = document.getElementById("btn-theme-toggle");
+  if (btn) btn.textContent = saved === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode";
+}
+
+function toggleAppTheme() {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("app0006_theme", next);
+
+  const btn = document.getElementById("btn-theme-toggle");
+  btn.textContent = next === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode";
+  syncEditorIframeTheme(next);
+  showToast(next === "dark" ? "Switched to Obsidian Dark" : "Switched to Crisp Light");
+}
+
+function syncEditorIframeTheme(theme) {
+  if (!ckEditorInstance || !ckEditorInstance.document) return;
+  const body = ckEditorInstance.document.getBody().$;
+  if (theme === "dark") {
+    body.style.backgroundColor = "#111827";
+    body.style.color = "#f8fafc";
+  } else {
+    body.style.backgroundColor = "#ffffff";
+    body.style.color = "#0f172a";
+  }
+}
+
+// 5. Full-Featured CKEditor 4 Setup
 function initCKEditor() {
   CKEDITOR.config.versionCheck = false;
 
@@ -131,391 +99,594 @@ function initCKEditor() {
     allowedContent: true,
     extraAllowedContent: "*(*);*{*}",
     versionCheck: false,
-    removePlugins: "elementspath",
-    resize_enabled: false,
+    contentsCss: [
+      "https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css",
+      "data:text/css;charset=utf-8," + encodeURIComponent(`
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-size: 15.5px;
+          line-height: 1.7;
+          padding: 14px;
+          margin: 0;
+        }
+        img { max-width: 100%; height: auto; border-radius: 10px; }
+        table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+        th, td { border: 1px solid #94a3b8; padding: 8px 10px; }
+        blockquote { border-left: 4px solid #6366f1; padding: 8px 12px; background: rgba(99,102,241,0.08); margin: 10px 0; }
+        pre { background: #0f172a; color: #38bdf8; padding: 12px; border-radius: 10px; overflow-x: auto; }
+      `)
+    ],
     toolbar: [
-      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "TextColor", "BGColor"] },
-      { name: "paragraph", items: ["BulletedList", "NumberedList", "JustifyLeft", "JustifyCenter", "JustifyRight"] },
-      { name: "history", items: ["Undo", "Redo"] },
-      { name: "styles", items: ["Format", "FontSize", "Font"] },
-      { name: "insert", items: ["Table", "Link", "Unlink", "HorizontalRule", "SpecialChar"] },
-      { name: "extra", items: ["Subscript", "Superscript", "RemoveFormat", "Blockquote", "Outdent", "Indent"] },
-      { name: "document", items: ["Source", "Maximize"] }
+      { name: "document", items: ["Source", "-", "Undo", "Redo", "-", "Find", "Replace"] },
+      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "Subscript", "Superscript", "RemoveFormat"] },
+      { name: "paragraph", items: ["NumberedList", "BulletedList", "-", "Outdent", "Indent", "-", "Blockquote", "CreateDiv", "-", "JustifyLeft", "JustifyCenter", "JustifyRight"] },
+      { name: "insert", items: ["Table", "HorizontalRule", "SpecialChar", "Link", "Unlink"] },
+      { name: "styles", items: ["Styles", "Format", "Font", "FontSize"] },
+      { name: "colors", items: ["TextColor", "BGColor"] }
     ]
-  });
-
-  // Bắt sự kiện click/chạm ngay bên trong vùng soạn thảo để tải file đính kèm trực tiếp
-  ckEditorInstance.on("contentDom", () => {
-    const editable = ckEditorInstance.editable();
-    editable.attachListener(editable, "click", (evt) => {
-      const rawTarget = evt.data.getTarget().$;
-      if (!rawTarget || !rawTarget.closest) return;
-
-      const linkEl = rawTarget.closest("a.sn-file-link, a[download]");
-      if (linkEl && linkEl.href) {
-        evt.data.preventDefault();
-        evt.data.stopPropagation();
-        const fileName = linkEl.getAttribute("download") || linkEl.dataset.filename || "download";
-        triggerDirectFileDownload(linkEl.href, fileName);
-      }
-    });
   });
 
   ckEditorInstance.on("instanceReady", () => {
     const warn = document.querySelector(".cke_notification_warning");
     if (warn) warn.style.display = "none";
-    triggerKaTeXRender();
-    updateWordCount();
-  });
-
-  ckEditorInstance.on("focus", () => {
-    document.body.classList.add("keyboard-open");
-  });
-
-  ckEditorInstance.on("blur", () => {
-    setTimeout(() => {
-      if (!window.visualViewport || (window.innerHeight - window.visualViewport.height < 120)) {
-        document.body.classList.remove("keyboard-open");
-      }
-    }, 150);
+    syncEditorIframeTheme(document.documentElement.getAttribute("data-theme"));
   });
 
   ckEditorInstance.on("change", () => {
-    const statusEl = document.getElementById("save-status");
-    if (statusEl) statusEl.textContent = "Đang sửa...";
-    triggerKaTeXRender();
-    updateWordCount();
-
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(() => {
-      saveCurrentNoteAuto();
-    }, 2000);
+    updateWordStats();
+    scheduleAutoSave();
   });
 }
 
-function triggerKaTeXRender() {
-  setTimeout(() => {
-    if (!ckEditorInstance || !ckEditorInstance.document) return;
-    const bodyNode = ckEditorInstance.document.getBody().$;
-    if (typeof renderMathInElement === "function") {
-      renderMathInElement(bodyNode, {
-        delimiters: [
-          { left: "$$", right: "$$", display: true },
-          { left: "$", right: "$", display: false },
-          { left: "\\(", right: "\\)", display: false },
-          { left: "\\[", right: "\\]", display: true }
-        ],
-        throwOnError: false
-      });
-    }
-  }, 350);
+function toggleEditorToolbar() {
+  const topBar = document.querySelector(".cke_top");
+  const btn = document.getElementById("btn-toggle-toolbar");
+  if (!topBar) return;
+
+  toolbarVisible = !toolbarVisible;
+  topBar.style.display = toolbarVisible ? "block" : "none";
+  btn.textContent = toolbarVisible ? "🧰 Hide Toolbar" : "🧰 Show Toolbar";
 }
 
-function updateWordCount() {
-  if (!ckEditorInstance || !ckEditorInstance.document) return;
-  const text = ckEditorInstance.document.getBody().getText() || "";
-  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-  const chars = text.length;
-  const wordCountEl = document.getElementById("word-count-display");
-  if (wordCountEl) {
-    wordCountEl.textContent = `${words} từ | ${chars} ký tự`;
+// 6. Data Bootstrap
+async function bootstrapData() {
+  const notebooks = await db.notebooks.toArray();
+  if (notebooks.length === 0) {
+    const now = Date.now();
+    const nbId = await db.notebooks.add({
+      title: "General Studio",
+      icon: "📘",
+      color: "#6366f1",
+      createdAt: now,
+      updatedAt: now
+    });
+    await db.pages.add({
+      notebookId: nbId,
+      title: "Welcome to Smart Note Pro V4",
+      content: `<h2>Aurora Studio Workspace</h2>
+        <p>Organize unlimited <b>Notebooks</b> and structured <b>Pages</b> right on your device.</p>
+        <ul>
+          <li><b>Rename &amp; Customize Notebooks:</b> Tap the notebook badge in the top bar or click ✏️ in the drawer to rename and pick custom icons.</li>
+          <li><b>Paste AI Lessons:</b> Tap <b>Paste AI HTML</b> to import formatted notes and KaTeX formulas from Gemini or ChatGPT.</li>
+          <li><b>Math Preview:</b> Switch to <b>Read Mode</b> to render formulas cleanly: $$\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}$$</li>
+        </ul>`,
+      createdAt: now,
+      updatedAt: now
+    });
   }
+  await renderSidebarLists();
 }
 
-// ================= NOTEBOOK LIBRARY CRUD =================
-async function loadNotebooksList(filterText = "") {
-  let notebooks = await db.notebooks.orderBy("updatedAt").reverse().toArray();
+// 7. Sidebar Rendering (2-Level Notebooks & Pages)
+async function renderSidebarLists(searchQuery = "") {
+  const notebooks = await db.notebooks.orderBy("updatedAt").reverse().toArray();
+  const nbListEl = document.getElementById("notebook-list");
+  nbListEl.innerHTML = "";
 
-  if (filterText.trim() !== "") {
-    const query = filterText.toLowerCase();
-    notebooks = notebooks.filter(nb =>
-      (nb.title && nb.title.toLowerCase().includes(query)) ||
-      (nb.content && nb.content.toLowerCase().includes(query))
+  if (!currentNotebookId && notebooks.length > 0) {
+    currentNotebookId = notebooks[0].id;
+  }
+
+  for (const nb of notebooks) {
+    const pageCount = await db.pages.where("notebookId").equals(nb.id).count();
+    const li = document.createElement("li");
+    li.className = nb.id === currentNotebookId ? "active" : "";
+
+    const icon = nb.icon || "📘";
+    const color = nb.color || "#6366f1";
+
+    li.innerHTML = `
+      <div class="nb-item-main">
+        <div class="nb-color-dot" style="background:${color};">${icon}</div>
+        <div class="item-title-wrap">
+          <span class="item-title-text">${escapeHtml(nb.title)}</span>
+          <span class="item-sub-text">${pageCount} ${pageCount === 1 ? "page" : "pages"}</span>
+        </div>
+      </div>
+      <div class="item-actions">
+        <button class="btn-micro" title="Rename Notebook" onclick="event.stopPropagation(); openNotebookModal('edit', ${nb.id})">✏️</button>
+        <button class="btn-micro" title="Delete Notebook" onclick="event.stopPropagation(); deleteNotebook(${nb.id})">🗑️</button>
+      </div>
+    `;
+    li.onclick = () => selectNotebook(nb.id);
+    nbListEl.appendChild(li);
+  }
+
+  const activeNb = notebooks.find(n => n.id === currentNotebookId);
+  updateActiveNotebookHeader(activeNb);
+
+  // Render Pages
+  let pages = [];
+  if (searchQuery.trim() !== "") {
+    const q = searchQuery.toLowerCase();
+    const allPages = await db.pages.toArray();
+    pages = allPages.filter(p =>
+      (p.title && p.title.toLowerCase().includes(q)) ||
+      (p.content && p.content.toLowerCase().includes(q))
     );
+  } else if (currentNotebookId) {
+    pages = await db.pages.where("notebookId").equals(currentNotebookId).reverse().sortBy("updatedAt");
   }
 
-  const listEl = document.getElementById("notebook-list");
-  if (listEl) {
-    listEl.innerHTML = "";
+  const pageListEl = document.getElementById("page-list");
+  pageListEl.innerHTML = "";
+
+  pages.forEach(pg => {
+    const li = document.createElement("li");
+    li.className = pg.id === currentPageId ? "active" : "";
+    const dateStr = new Date(pg.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    li.innerHTML = `
+      <div class="item-title-wrap">
+        <span class="item-title-text">📄 ${escapeHtml(pg.title || "Untitled Page")}</span>
+        <span class="item-sub-text">Updated ${dateStr}</span>
+      </div>
+      <div class="item-actions">
+        <button class="btn-micro" title="Delete Page" onclick="event.stopPropagation(); deletePage(${pg.id})">🗑️</button>
+      </div>
+    `;
+    li.onclick = () => selectPage(pg.id, true);
+    pageListEl.appendChild(li);
+  });
+
+  if (!currentPageId && pages.length > 0) {
+    await selectPage(pages[0].id, false);
+  }
+}
+
+function updateActiveNotebookHeader(nb) {
+  if (!nb) return;
+  document.getElementById("header-nb-icon").textContent = nb.icon || "📘";
+  document.getElementById("header-nb-name").textContent = nb.title;
+  document.getElementById("active-notebook-label").textContent = `PAGES • ${nb.title.toUpperCase()}`;
+}
+
+// 8. Create & Rename / Customize Notebook Modal
+function initNotebookCustomizerPickers() {
+  document.querySelectorAll("#nb-icon-picker .icon-opt").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#nb-icon-picker .icon-opt").forEach(b => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      selectedNbIcon = btn.dataset.icon;
+    });
+  });
+
+  document.querySelectorAll("#nb-color-picker .color-opt").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#nb-color-picker .color-opt").forEach(b => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      selectedNbColor = btn.dataset.color;
+    });
+  });
+}
+
+async function openNotebookModal(mode, nbId = null) {
+  nbModalMode = mode;
+  editingNotebookId = nbId;
+
+  const titleEl = document.getElementById("nb-modal-title");
+  const nameInput = document.getElementById("nb-name-input");
+
+  if (mode === "edit" && nbId) {
+    const nb = await db.notebooks.get(nbId);
+    if (!nb) return;
+    titleEl.textContent = "✏️ Rename & Customize Notebook";
+    nameInput.value = nb.title || "";
+    selectedNbIcon = nb.icon || "📘";
+    selectedNbColor = nb.color || "#6366f1";
+  } else {
+    titleEl.textContent = "📓 Create New Notebook";
+    nameInput.value = "";
+    selectedNbIcon = "📘";
+    selectedNbColor = "#6366f1";
   }
 
-  if (notebooks.length === 0 && filterText === "") {
-    await createNewNotebook();
+  document.querySelectorAll("#nb-icon-picker .icon-opt").forEach(b => {
+    b.classList.toggle("selected", b.dataset.icon === selectedNbIcon);
+  });
+  document.querySelectorAll("#nb-color-picker .color-opt").forEach(b => {
+    b.classList.toggle("selected", b.dataset.color === selectedNbColor);
+  });
+
+  document.getElementById("notebook-modal").style.display = "flex";
+  setTimeout(() => nameInput.focus(), 80);
+}
+
+function openEditActiveNotebook() {
+  if (currentNotebookId) {
+    openNotebookModal("edit", currentNotebookId);
+  }
+}
+
+function closeNotebookModal() {
+  document.getElementById("notebook-modal").style.display = "none";
+}
+
+async function saveNotebookModal() {
+  const name = document.getElementById("nb-name-input").value.trim();
+  if (!name) {
+    showToast("Please enter a notebook name", "error");
     return;
   }
 
-  if (listEl) {
-    notebooks.forEach(nb => {
-      const li = document.createElement("li");
-      li.className = nb.id === currentNotebookId ? "active" : "";
-
-      const titleSpan = document.createElement("span");
-      titleSpan.textContent = nb.title || "Sổ tay chưa đặt tên";
-      titleSpan.onclick = () => selectNotebook(nb.id);
-
-      const delBtn = document.createElement("button");
-      delBtn.className = "btn-close";
-      delBtn.innerHTML = "🗑️";
-      delBtn.onclick = (e) => {
-        e.stopPropagation();
-        deleteNotebook(nb.id);
-      };
-
-      li.appendChild(titleSpan);
-      li.appendChild(delBtn);
-      listEl.appendChild(li);
+  const now = Date.now();
+  if (nbModalMode === "edit" && editingNotebookId) {
+    await db.notebooks.update(editingNotebookId, {
+      title: name,
+      icon: selectedNbIcon,
+      color: selectedNbColor,
+      updatedAt: now
     });
+    showToast("Notebook updated", "success");
+  } else {
+    await saveCurrentPage(false);
+    const newNbId = await db.notebooks.add({
+      title: name,
+      icon: selectedNbIcon,
+      color: selectedNbColor,
+      createdAt: now,
+      updatedAt: now
+    });
+    const newPgId = await db.pages.add({
+      notebookId: newNbId,
+      title: "Page 1",
+      content: "<p>Start writing or paste AI lesson HTML here...</p>",
+      createdAt: now,
+      updatedAt: now
+    });
+    currentNotebookId = newNbId;
+    currentPageId = null;
+    await renderSidebarLists();
+    await selectPage(newPgId, true);
+    closeNotebookModal();
+    showToast("New notebook created", "success");
+    return;
   }
 
-  if (!currentNotebookId && notebooks.length > 0) {
-    await selectNotebook(notebooks[0].id);
-  }
+  closeNotebookModal();
+  await renderSidebarLists();
 }
 
-async function createNewNotebook() {
-  if (currentNotebookId) {
-    await saveCurrentNoteAuto();
-  }
-
-  const timestamp = new Date().getTime();
-  const id = await db.notebooks.add({
-    title: "Sổ tay " + new Date().toLocaleDateString("vi-VN"),
-    content: "<p>Nhập nội dung ghi chú, công thức toán hoặc chèn ảnh/tài liệu tại đây...</p>",
-    createdAt: timestamp,
-    updatedAt: timestamp
-  });
-  await selectNotebook(id);
-  await loadNotebooksList();
-  closeSidebar();
-}
-
-async function selectNotebook(id) {
-  if (currentNotebookId === id) return;
-
-  if (currentNotebookId) {
-    await saveCurrentNoteAuto();
-  }
-
-  currentNotebookId = id;
-  const nb = await db.notebooks.get(id);
-  if (nb) {
-    const titleEl = document.getElementById("note-title");
-    if (titleEl) titleEl.value = nb.title || "";
-    if (ckEditorInstance) {
-      ckEditorInstance.setData(nb.content || "", () => {
-        triggerKaTeXRender();
-        updateWordCount();
-      });
-    }
-  }
-  const statusEl = document.getElementById("save-status");
-  if (statusEl) statusEl.textContent = "Đã lưu";
-  await loadNotebooksList();
-}
-
-async function saveCurrentNoteAuto() {
-  if (!currentNotebookId) return;
-  const titleField = document.getElementById("note-title");
-  const title = titleField ? titleField.value : "Sổ tay chưa đặt tên";
-  const content = ckEditorInstance ? ckEditorInstance.getData() : "";
-
-  await db.notebooks.update(currentNotebookId, {
-    title: title,
-    content: content,
-    updatedAt: new Date().getTime()
-  });
-
-  const statusEl = document.getElementById("save-status");
-  if (statusEl) statusEl.textContent = "Đã lưu";
-  await loadNotebooksList();
+async function selectNotebook(nbId) {
+  await saveCurrentPage(false);
+  currentNotebookId = nbId;
+  currentPageId = null;
+  await renderSidebarLists();
 }
 
 async function deleteNotebook(id) {
-  if (confirm("Bạn có chắc muốn xóa cuốn sổ tay này không?")) {
+  const count = await db.notebooks.count();
+  if (count <= 1) {
+    showToast("At least one notebook is required", "error");
+    return;
+  }
+  if (confirm("Delete this notebook and all pages inside it?")) {
+    await db.pages.where("notebookId").equals(id).delete();
     await db.notebooks.delete(id);
     if (currentNotebookId === id) {
       currentNotebookId = null;
+      currentPageId = null;
     }
-    await loadNotebooksList();
-    const notebooks = await db.notebooks.toArray();
-    if (notebooks.length > 0) {
-      await selectNotebook(notebooks[0].id);
-    } else {
-      await createNewNotebook();
-    }
+    await renderSidebarLists();
+    showToast("Notebook deleted");
   }
+}
+
+// 9. Page Management & Auto-Save
+async function createNewPage() {
+  if (!currentNotebookId) return;
+  await saveCurrentPage(false);
+
+  const now = Date.now();
+  const count = await db.pages.where("notebookId").equals(currentNotebookId).count();
+  const pgId = await db.pages.add({
+    notebookId: currentNotebookId,
+    title: `Untitled Page ${count + 1}`,
+    content: "<p></p>",
+    createdAt: now,
+    updatedAt: now
+  });
+
+  await db.notebooks.update(currentNotebookId, { updatedAt: now });
+  await renderSidebarLists();
+  await selectPage(pgId, true);
+  showToast("New page added", "success");
+}
+
+async function selectPage(pgId, shouldCloseSidebar = true) {
+  if (currentPageId && currentPageId !== pgId) {
+    await saveCurrentPage(false);
+  }
+
+  const pg = await db.pages.get(pgId);
+  if (!pg) return;
+
+  currentNotebookId = pg.notebookId;
+  currentPageId = pg.id;
+
+  document.getElementById("page-title").value = pg.title || "";
+  if (ckEditorInstance) {
+    ckEditorInstance.setData(pg.content || "");
+  }
+
+  if (workspaceMode === "read") {
+    renderReaderContent();
+  }
+
+  updateWordStats();
+  setSaveStatus("Saved", true);
+  await renderSidebarLists();
+  if (shouldCloseSidebar) closeSidebar();
+}
+
+async function deletePage(pgId) {
+  const count = await db.pages.where("notebookId").equals(currentNotebookId).count();
+  if (count <= 1) {
+    showToast("Each notebook must have at least one page", "error");
+    return;
+  }
+  if (confirm("Delete this page?")) {
+    await db.pages.delete(pgId);
+    if (currentPageId === pgId) currentPageId = null;
+    await renderSidebarLists();
+    showToast("Page deleted");
+  }
+}
+
+function scheduleAutoSave() {
+  setSaveStatus("Saving...", false);
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    saveCurrentPage(false);
+  }, 1400);
+}
+
+async function saveCurrentPage(manual = true) {
+  if (!currentPageId || !ckEditorInstance) return;
+  const title = document.getElementById("page-title").value.trim() || "Untitled Page";
+  const content = ckEditorInstance.getData();
+  const now = Date.now();
+
+  await db.pages.update(currentPageId, {
+    title: title,
+    content: content,
+    updatedAt: now
+  });
+
+  if (currentNotebookId) {
+    await db.notebooks.update(currentNotebookId, { updatedAt: now });
+  }
+
+  setSaveStatus("Saved", true);
+  const activePageTitle = document.querySelector("#page-list li.active .item-title-text");
+  if (activePageTitle) activePageTitle.textContent = `📄 ${title}`;
+  if (manual) showToast("Page saved", "success");
+}
+
+function setSaveStatus(label, isSaved) {
+  document.getElementById("save-status").textContent = label;
+  const dot = document.getElementById("save-dot");
+  dot.className = isSaved ? "dot-saved" : "dot-saving";
+}
+
+function updateWordStats() {
+  if (!ckEditorInstance) return;
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = ckEditorInstance.getData();
+  const text = (tempDiv.textContent || "").trim();
+  const words = text ? text.split(/\s+/).length : 0;
+  const readMins = Math.max(1, Math.ceil(words / 200));
+  document.getElementById("word-stats").textContent = `${words} words • ${readMins} min read`;
 }
 
 function onSearchInput(val) {
-  loadNotebooksList(val);
+  renderSidebarLists(val);
 }
 
-// ================= SHARE WEB LINK ENGINE =================
-function getShareMap() {
-  try {
-    return JSON.parse(localStorage.getItem("sn_share_id_map") || "{}");
-  } catch (e) {
-    return {};
-  }
-}
+// 10. Workspace Mode Switcher (Write vs. Reader Mode)
+function setWorkspaceMode(mode) {
+  workspaceMode = mode;
+  const writeBtn = document.getElementById("btn-mode-write");
+  const readBtn = document.getElementById("btn-mode-read");
+  const editorWrap = document.getElementById("editor-wrapper");
+  const readerWrap = document.getElementById("reader-wrapper");
 
-function saveShareIdForNotebook(nbId, shareId) {
-  const map = getShareMap();
-  map[String(nbId)] = shareId;
-  localStorage.setItem("sn_share_id_map", JSON.stringify(map));
-}
-
-async function openShareModal() {
-  await saveCurrentNoteAuto();
-
-  const modal = document.getElementById("share-modal");
-  const statusText = document.getElementById("share-status-text");
-  const linkBox = document.getElementById("share-link-box");
-  const urlInput = document.getElementById("share-url-input");
-
-  if (modal) modal.style.display = "flex";
-  if (statusText) statusText.textContent = "⏳ Đang xuất bản ghi chú lên máy chủ...";
-  if (linkBox) linkBox.style.display = "none";
-
-  const titleField = document.getElementById("note-title");
-  const title = titleField ? titleField.value.trim() : "Sổ tay chưa đặt tên";
-  const content = ckEditorInstance ? ckEditorInstance.getData() : "";
-  const acc = getSavedAccount();
-  const shareMap = getShareMap();
-  const existingShareId = currentNotebookId ? (shareMap[String(currentNotebookId)] || "") : "";
-
-  try {
-    const res = await fetch(SHARE_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: SECRET_TOKEN,
-        title: title,
-        content: content,
-        email: acc.email,
-        uuid: acc.uuid,
-        share_id: existingShareId
-      })
-    });
-    const result = await res.json();
-
-    if (result.status === "success" && result.share_url) {
-      if (currentNotebookId && result.share_id) {
-        saveShareIdForNotebook(currentNotebookId, result.share_id);
-      }
-      if (statusText) statusText.textContent = "✅ Sẵn sàng chia sẻ! Bất kỳ ai có link đều xem & tải file đính kèm được:";
-      if (urlInput) urlInput.value = result.share_url;
-      if (linkBox) linkBox.style.display = "flex";
-    } else {
-      if (statusText) statusText.textContent = "❌ " + (result.message || "Không thể tạo liên kết.");
-    }
-  } catch (err) {
-    if (statusText) statusText.textContent = "❌ Lỗi kết nối máy chủ: " + err.message;
-  }
-}
-
-function closeShareModal() {
-  const modal = document.getElementById("share-modal");
-  if (modal) modal.style.display = "none";
-}
-
-function copyShareUrl() {
-  const urlInput = document.getElementById("share-url-input");
-  const btn = document.getElementById("btn-copy-share");
-  if (!urlInput || !urlInput.value) return;
-
-  urlInput.select();
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(urlInput.value).then(() => {
-      if (btn) {
-        const old = btn.textContent;
-        btn.textContent = "✅ Đã chép!";
-        setTimeout(() => { btn.textContent = old; }, 2000);
-      }
-    }).catch(() => {
-      document.execCommand("copy");
-      alert("Đã sao chép liên kết!");
-    });
+  if (mode === "read") {
+    saveCurrentPage(false);
+    renderReaderContent();
+    editorWrap.style.display = "none";
+    readerWrap.style.display = "block";
+    readBtn.classList.add("active");
+    writeBtn.classList.remove("active");
   } else {
-    document.execCommand("copy");
-    alert("Đã sao chép liên kết!");
+    readerWrap.style.display = "none";
+    editorWrap.style.display = "flex";
+    writeBtn.classList.add("active");
+    readBtn.classList.remove("active");
   }
 }
 
-function nativeShareUrl() {
-  const urlInput = document.getElementById("share-url-input");
-  const titleField = document.getElementById("note-title");
-  if (!urlInput || !urlInput.value) return;
+function renderReaderContent() {
+  const title = document.getElementById("page-title").value || "Untitled Page";
+  const nbName = document.getElementById("header-nb-name").textContent;
+  const html = ckEditorInstance ? ckEditorInstance.getData() : "";
 
-  if (navigator.share) {
-    navigator.share({
-      title: titleField ? titleField.value : "Ghi chú Smart Note Pro",
-      text: "Xem ghi chú chia sẻ từ Smart Note Pro:",
-      url: urlInput.value
-    }).catch(() => {});
-  } else {
-    copyShareUrl();
+  document.getElementById("reader-title").textContent = title;
+  document.getElementById("reader-meta-line").textContent = `${nbName} • ${document.getElementById("word-stats").textContent}`;
+
+  const container = document.getElementById("reader-content");
+  container.innerHTML = html;
+
+  if (typeof renderMathInElement === "function") {
+    renderMathInElement(container, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "$", right: "$", display: false },
+        { left: "\\(", right: "\\)", display: false },
+        { left: "\\[", right: "\\]", display: true }
+      ],
+      throwOnError: false
+    });
   }
 }
 
-function openShareUrlInBrowser() {
-  const urlInput = document.getElementById("share-url-input");
-  if (urlInput && urlInput.value) {
-    window.open(urlInput.value, "_blank", "noopener");
-  }
+function changeReaderFontSize(delta) {
+  readerFontSize = Math.min(24, Math.max(13, readerFontSize + delta));
+  document.getElementById("reader-content").style.fontSize = readerFontSize + "px";
 }
 
-// ================= NAVIGATION & MATH PROMPT =================
-function openSidebar() {
-  document.getElementById("sidebar").classList.add("open");
-  document.getElementById("sidebar-overlay").style.display = "block";
+// 11. Content Insertion Helpers (Paste HTML, Math, Callout, Photo)
+function openPasteHtmlModal() {
+  document.getElementById("raw-html-input").value = "";
+  document.getElementById("paste-modal").style.display = "flex";
 }
 
-function closeSidebar() {
-  document.getElementById("sidebar").classList.remove("open");
-  document.getElementById("sidebar-overlay").style.display = "none";
+function closePasteHtmlModal() {
+  document.getElementById("paste-modal").style.display = "none";
+}
+
+function insertRawHtmlToEditor() {
+  const raw = document.getElementById("raw-html-input").value;
+  if (!raw.trim()) return;
+  if (workspaceMode === "read") setWorkspaceMode("write");
+  ckEditorInstance.insertHtml(raw);
+  closePasteHtmlModal();
+  saveCurrentPage(true);
 }
 
 function insertMathFormulaPrompt() {
-  const formula = prompt("Nhập công thức LaTeX (VD: \\frac{a}{b} hoặc E = mc^2):", "\\int_{0}^{\\infty} x^2 dx");
-  if (formula && ckEditorInstance) {
-    ckEditorInstance.insertHtml(` $$${formula}$$ `);
-    triggerKaTeXRender();
-    updateWordCount();
+  const formula = prompt("Enter LaTeX formula (e.g. \\frac{-b \\pm \\sqrt{\\Delta}}{2a}):", "E = mc^2");
+  if (formula && formula.trim()) {
+    if (workspaceMode === "read") setWorkspaceMode("write");
+    ckEditorInstance.insertHtml(` $$${formula.trim()}$$ `);
+    saveCurrentPage(true);
   }
 }
 
-// ================= CANVAS DRAWING ENGINE =================
+function insertCalloutBox() {
+  if (workspaceMode === "read") setWorkspaceMode("write");
+  ckEditorInstance.insertHtml(`<blockquote><p><strong>💡 Key Takeaway:</strong> Write your highlighted insight here...</p></blockquote><p></p>`);
+  saveCurrentPage(false);
+}
+
+function triggerPhotoPicker() {
+  document.getElementById("photo-picker-input").click();
+}
+
+function handlePhotoUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxWidth = 960;
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      const offCanvas = document.createElement("canvas");
+      offCanvas.width = width;
+      offCanvas.height = height;
+      offCanvas.getContext("2d").drawImage(img, 0, 0, width, height);
+
+      const compressed = offCanvas.toDataURL("image/jpeg", 0.8);
+      if (workspaceMode === "read") setWorkspaceMode("write");
+      ckEditorInstance.insertHtml(`<p><img src="${compressed}" style="max-width:100%; height:auto; border-radius:10px;" /></p>`);
+      saveCurrentPage(true);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = "";
+}
+
+// 12. Whiteboard Hand-Drawing Canvas Engine (With Undo & Grid Paper)
 const canvas = document.getElementById("drawing-board");
-const ctx = canvas ? canvas.getContext("2d") : null;
+const ctx = canvas.getContext("2d");
 let isDrawing = false;
 
 function initCanvasDrawing() {
-  const sizeInput = document.getElementById("brush-size");
-  if (sizeInput) {
-    sizeInput.addEventListener("input", (e) => {
-      const valEl = document.getElementById("brush-size-val");
-      if (valEl) valEl.textContent = e.target.value + "px";
-    });
-  }
-  const colorInput = document.getElementById("brush-color");
-  if (colorInput) {
-    colorInput.addEventListener("input", (e) => {
-      currentPenColor = e.target.value;
-      setPenMode();
-    });
-  }
+  resetCanvasSurface();
+  document.getElementById("brush-size").addEventListener("input", (e) => {
+    document.getElementById("brush-size-val").textContent = e.target.value + "px";
+  });
+  document.getElementById("brush-color").addEventListener("input", (e) => {
+    currentPenColor = e.target.value;
+    setPenMode();
+  });
 
-  if (canvas) {
-    canvas.addEventListener("pointerdown", startDrawing);
-    canvas.addEventListener("pointermove", draw);
-    canvas.addEventListener("pointerup", stopDrawing);
-    canvas.addEventListener("pointercancel", stopDrawing);
+  canvas.addEventListener("pointerdown", startDrawing);
+  canvas.addEventListener("pointermove", draw);
+  canvas.addEventListener("pointerup", stopDrawing);
+  canvas.addEventListener("pointercancel", stopDrawing);
+}
+
+function resetCanvasSurface() {
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (isGridEnabled) {
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= canvas.width; x += 28) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= canvas.height; y += 28) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
   }
 }
 
+function saveCanvasSnapshot() {
+  if (canvasUndoStack.length > 20) canvasUndoStack.shift();
+  canvasUndoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+}
+
+function undoCanvasStroke() {
+  if (canvasUndoStack.length > 0) {
+    const prev = canvasUndoStack.pop();
+    ctx.putImageData(prev, 0, 0);
+  }
+}
+
+function toggleCanvasGrid() {
+  isGridEnabled = !isGridEnabled;
+  document.getElementById("btn-grid").classList.toggle("active", isGridEnabled);
+  saveCanvasSnapshot();
+  resetCanvasSurface();
+}
+
 function startDrawing(e) {
-  if (!ctx) return;
+  saveCanvasSnapshot();
   isDrawing = true;
   ctx.beginPath();
   const pos = getCanvasPos(e);
@@ -523,29 +694,17 @@ function startDrawing(e) {
 }
 
 function draw(e) {
-  if (!isDrawing || !ctx) return;
+  if (!isDrawing) return;
   const pos = getCanvasPos(e);
-  const sizeEl = document.getElementById("brush-size");
-  const size = sizeEl ? sizeEl.value : 4;
-
-  ctx.lineWidth = size;
+  ctx.lineWidth = document.getElementById("brush-size").value;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-
-  if (isEraserMode) {
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.strokeStyle = "rgba(0,0,0,1)";
-  } else {
-    ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = currentPenColor;
-  }
-
+  ctx.strokeStyle = isEraserMode ? "#ffffff" : currentPenColor;
   ctx.lineTo(pos.x, pos.y);
   ctx.stroke();
 }
 
 function stopDrawing() {
-  if (!ctx) return;
   isDrawing = false;
   ctx.beginPath();
 }
@@ -560,120 +719,148 @@ function getCanvasPos(e) {
 
 function setEraserMode() {
   isEraserMode = true;
-  const eraserBtn = document.getElementById("btn-eraser");
-  const penBtn = document.getElementById("btn-pen");
-  if (eraserBtn) eraserBtn.classList.add("active");
-  if (penBtn) penBtn.classList.remove("active");
+  document.getElementById("btn-eraser").classList.add("active");
+  document.getElementById("btn-pen").classList.remove("active");
 }
 
 function setPenMode() {
   isEraserMode = false;
-  const eraserBtn = document.getElementById("btn-eraser");
-  const penBtn = document.getElementById("btn-pen");
-  if (penBtn) penBtn.classList.add("active");
-  if (eraserBtn) eraserBtn.classList.remove("active");
+  document.getElementById("btn-pen").classList.add("active");
+  document.getElementById("btn-eraser").classList.remove("active");
 }
 
 function clearCanvas() {
-  if (ctx && canvas) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }
+  saveCanvasSnapshot();
+  resetCanvasSurface();
 }
 
 function openCanvasModal() {
-  const modal = document.getElementById("canvas-modal");
-  if (modal) modal.style.display = "flex";
+  document.getElementById("canvas-modal").style.display = "flex";
 }
 
 function closeCanvasModal() {
-  const modal = document.getElementById("canvas-modal");
-  if (modal) modal.style.display = "none";
+  document.getElementById("canvas-modal").style.display = "none";
 }
 
 function insertDrawingToEditor() {
-  if (!canvas || !ckEditorInstance) return;
   const dataURL = canvas.toDataURL("image/png");
-  ckEditorInstance.insertHtml(`<p><img src="${dataURL}" style="max-width:100%; height:auto; border-radius:8px;" /></p>`);
-  clearCanvas();
+  if (workspaceMode === "read") setWorkspaceMode("write");
+  ckEditorInstance.insertHtml(`<p><img src="${dataURL}" style="max-width:100%; height:auto; border:1px solid #cbd5e1; border-radius:10px;" /></p>`);
+  canvasUndoStack = [];
+  resetCanvasSurface();
   closeCanvasModal();
-  saveCurrentNoteAuto();
-  updateWordCount();
+  saveCurrentPage(true);
 }
 
-// ================= CLOUD BACKUP & SYNC ENGINE =================
-function openCloudModal() {
-  const acc = getSavedAccount();
-  const emailEl = document.getElementById("cloud-email");
-  const passEl = document.getElementById("cloud-pass");
-  if (emailEl && acc.email && !emailEl.value) emailEl.value = acc.email;
-  if (passEl && acc.password && !passEl.value) passEl.value = acc.password;
+// 13. Drawer Navigation
+function openSidebar() {
+  saveCurrentPage(false);
+  document.getElementById("sidebar").classList.add("open");
+  document.getElementById("sidebar-overlay").style.display = "block";
+}
 
-  const modal = document.getElementById("cloud-modal");
-  if (modal) modal.style.display = "flex";
+function closeSidebar() {
+  document.getElementById("sidebar").classList.remove("open");
+  document.getElementById("sidebar-overlay").style.display = "none";
+}
+
+// 14. Cloud Backup & Restore Engine
+function openCloudModal() {
+  document.getElementById("cloud-modal").style.display = "flex";
 }
 
 function closeCloudModal() {
-  const modal = document.getElementById("cloud-modal");
-  if (modal) modal.style.display = "none";
+  document.getElementById("cloud-modal").style.display = "none";
+}
+
+function restoreSavedCloudEmail() {
+  const saved = localStorage.getItem("app0006_cloud_email");
+  if (saved) document.getElementById("cloud-email").value = saved;
+}
+
+async function buildFullBackupPackage() {
+  await saveCurrentPage(false);
+  return {
+    app: window.APP_CONFIG.appId,
+    version: window.APP_CONFIG.version,
+    exportedAt: new Date().toISOString(),
+    notebooks: await db.notebooks.toArray(),
+    pages: await db.pages.toArray()
+  };
+}
+
+async function applyBackupPackage(pkg) {
+  if (pkg && Array.isArray(pkg.notebooks) && Array.isArray(pkg.pages)) {
+    const normalizedNotebooks = pkg.notebooks.map(nb => ({
+      ...nb,
+      icon: nb.icon || "📘",
+      color: nb.color || "#6366f1"
+    }));
+    await db.notebooks.clear();
+    await db.pages.clear();
+    await db.notebooks.bulkAdd(normalizedNotebooks);
+    await db.pages.bulkAdd(pkg.pages);
+    currentNotebookId = null;
+    currentPageId = null;
+    await bootstrapData();
+    return true;
+  }
+  return false;
 }
 
 async function performCloudBackup() {
-  const emailEl = document.getElementById("cloud-email");
-  const passEl = document.getElementById("cloud-pass");
-  const email = emailEl ? emailEl.value.trim() : "";
-  const password = passEl ? passEl.value.trim() : "";
+  const email = document.getElementById("cloud-email").value.trim();
+  const password = document.getElementById("cloud-pass").value.trim();
+  const label = document.getElementById("cloud-label").value.trim();
 
   if (!email || !password) {
-    alert("Vui lòng nhập đầy đủ Email và Mật khẩu.");
+    showToast("Please enter both email and password", "error");
     return;
   }
 
-  saveAccountCredentials(email, password);
-  await saveCurrentNoteAuto();
-
-  const allNotebooks = await db.notebooks.toArray();
-  if (allNotebooks.length === 0) {
-    alert("Không có ghi chú nào để sao lưu.");
-    return;
-  }
+  localStorage.setItem("app0006_cloud_email", email);
+  const fullPackage = await buildFullBackupPackage();
 
   try {
-    const res = await fetch(BACKUP_API_URL, {
+    const res = await fetch(window.APP_CONFIG.backupUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        token: SECRET_TOKEN,
+        token: window.APP_CONFIG.securityToken,
         email: email,
         password: password,
-        data: allNotebooks
+        label: label,
+        data: fullPackage
       })
     });
     const result = await res.json();
-    alert(result.message);
+    showToast(result.message, result.status === "success" ? "success" : "error");
+    if (result.status === "success") {
+      document.getElementById("cloud-label").value = "";
+      triggerInterstitialAd();
+    }
   } catch (err) {
-    alert("Lỗi kết nối máy chủ: " + err.message);
+    showToast("Cloud error: " + err.message, "error");
   }
 }
 
 async function fetchCloudVersions() {
-  const emailEl = document.getElementById("cloud-email");
-  const passEl = document.getElementById("cloud-pass");
-  const email = emailEl ? emailEl.value.trim() : "";
-  const password = passEl ? passEl.value.trim() : "";
+  const email = document.getElementById("cloud-email").value.trim();
+  const password = document.getElementById("cloud-pass").value.trim();
 
   if (!email || !password) {
-    alert("Vui lòng nhập Email và Mật khẩu trước.");
+    showToast("Please enter email and password first", "error");
     return;
   }
 
-  saveAccountCredentials(email, password);
+  localStorage.setItem("app0006_cloud_email", email);
 
   try {
-    const res = await fetch(RESTORE_API_URL, {
+    const res = await fetch(window.APP_CONFIG.restoreUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        token: SECRET_TOKEN,
+        token: window.APP_CONFIG.securityToken,
         email: email,
         password: password,
         action: "list"
@@ -683,42 +870,52 @@ async function fetchCloudVersions() {
 
     if (result.status === "success") {
       const listEl = document.getElementById("cloud-versions-list");
-      const wrapperEl = document.getElementById("cloud-versions-wrapper");
-      if (wrapperEl) wrapperEl.style.display = "block";
-      if (listEl) {
-        listEl.innerHTML = "";
-        if (!result.backups || result.backups.length === 0) {
-          listEl.innerHTML = "<li style='padding:10px;'>Chưa có bản sao lưu nào.</li>";
-          return;
-        }
-        result.backups.forEach(item => {
-          const li = document.createElement("li");
-          li.innerHTML = `<span>📅 ${escapeHtml(item.timestamp)}</span> <button class='btn-tool-sm' onclick='restoreCloudVersion("${escapeHtml(item.filename)}")'>Restore</button>`;
-          listEl.appendChild(li);
-        });
+      listEl.innerHTML = "";
+      document.getElementById("cloud-versions-wrapper").style.display = "block";
+
+      if (!result.backups || result.backups.length === 0) {
+        listEl.innerHTML = "<li style='padding:10px;'>No cloud backups found.</li>";
+        return;
       }
+
+      result.backups.forEach(item => {
+        const li = document.createElement("li");
+        const noteTag = item.label ? ` • <b>${escapeHtml(item.label)}</b>` : "";
+        const statsTag = item.notebooks_count !== undefined
+          ? ` (${item.notebooks_count} nb, ${item.pages_count} pg)`
+          : "";
+        li.innerHTML = `
+          <div>
+            <div>📅 ${item.timestamp}${noteTag}</div>
+            <small style="color:var(--text-muted);">${item.size_kb || 0} KB${statsTag}</small>
+          </div>
+          <div style="display:flex; gap:5px;">
+            <button class="canvas-btn active" onclick="restoreCloudVersion('${item.filename}')">Restore</button>
+            <button class="canvas-btn" onclick="deleteCloudVersion('${item.filename}')">🗑️</button>
+          </div>
+        `;
+        listEl.appendChild(li);
+      });
     } else {
-      alert(result.message);
+      showToast(result.message, "error");
     }
   } catch (err) {
-    alert("Lỗi tải danh sách sao lưu: " + err.message);
+    showToast("Failed to load versions: " + err.message, "error");
   }
 }
 
 async function restoreCloudVersion(filename) {
-  const emailEl = document.getElementById("cloud-email");
-  const passEl = document.getElementById("cloud-pass");
-  const email = emailEl ? emailEl.value.trim() : "";
-  const password = passEl ? passEl.value.trim() : "";
+  const email = document.getElementById("cloud-email").value.trim();
+  const password = document.getElementById("cloud-pass").value.trim();
 
-  if (!confirm("Khôi phục sẽ ghi đè dữ liệu hiện tại trên máy. Tiếp tục?")) return;
+  if (!confirm("Restoring this version will replace your current local notebooks. Continue?")) return;
 
   try {
-    const res = await fetch(RESTORE_API_URL, {
+    const res = await fetch(window.APP_CONFIG.restoreUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        token: SECRET_TOKEN,
+        token: window.APP_CONFIG.securityToken,
         email: email,
         password: password,
         action: "fetch",
@@ -727,343 +924,134 @@ async function restoreCloudVersion(filename) {
     });
     const result = await res.json();
 
-    if (result.status === "success" && Array.isArray(result.data)) {
-      currentNotebookId = null;
-      await db.notebooks.clear();
-      if (result.data.length > 0) {
-        await db.notebooks.bulkPut(result.data);
-      }
+    if (result.status === "success" && await applyBackupPackage(result.data)) {
       closeCloudModal();
-      closeSidebar();
-      await loadNotebooksList();
-      alert("Khôi phục dữ liệu thành công!");
+      showToast("Cloud backup restored successfully", "success");
     } else {
-      alert(result.message || "Dữ liệu khôi phục không hợp lệ.");
+      showToast(result.message || "Invalid backup file", "error");
     }
   } catch (err) {
-    alert("Khôi phục thất bại: " + err.message);
+    showToast("Restore failed: " + err.message, "error");
   }
 }
 
-// ================= MEDIA LIBRARY & PREMIUM +1GB ($0.50) ENGINE =================
-function openMediaModal(defaultTab = "library") {
-  closeSidebar();
-  const modal = document.getElementById("media-modal");
-  if (modal) modal.style.display = "flex";
+async function deleteCloudVersion(filename) {
+  const email = document.getElementById("cloud-email").value.trim();
+  const password = document.getElementById("cloud-pass").value.trim();
 
-  const acc = getSavedAccount();
-  const premEmailEl = document.getElementById("premium-email-input");
-  if (premEmailEl && acc.email && !premEmailEl.value) {
-    premEmailEl.value = acc.email;
-  }
+  if (!confirm("Permanently delete this cloud snapshot?")) return;
 
-  switchMediaModalTab(defaultTab);
-  loadMediaLibrary();
-}
-
-function closeMediaModal() {
-  const modal = document.getElementById("media-modal");
-  if (modal) modal.style.display = "none";
-}
-
-function switchMediaModalTab(tabName) {
-  const btnLib = document.getElementById("tab-btn-library");
-  const btnPrem = document.getElementById("tab-btn-premium");
-  const panelLib = document.getElementById("panel-media-library");
-  const panelPrem = document.getElementById("panel-media-premium");
-
-  if (tabName === "premium") {
-    if (btnLib) btnLib.classList.remove("active");
-    if (btnPrem) btnPrem.classList.add("active");
-    if (panelLib) panelLib.style.display = "none";
-    if (panelPrem) panelPrem.style.display = "block";
-  } else {
-    if (btnPrem) btnPrem.classList.remove("active");
-    if (btnLib) btnLib.classList.add("active");
-    if (panelPrem) panelPrem.style.display = "none";
-    if (panelLib) panelLib.style.display = "block";
-  }
-}
-
-function formatFileSize(bytes) {
-  if (!bytes || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + " " + units[i];
-}
-
-function updateQuotaUI(quota) {
-  if (!quota) return;
-  const badgeEl = document.getElementById("media-account-badge");
-  const textEl = document.getElementById("media-quota-text");
-  const fillEl = document.getElementById("media-quota-fill");
-  const bannerEl = document.getElementById("media-upgrade-banner");
-
-  if (badgeEl) {
-    if (quota.email) {
-      badgeEl.textContent = `📧 ${quota.email} • ${quota.tier}`;
-    } else {
-      badgeEl.textContent = `📱 ${quota.tier}`;
-    }
-  }
-
-  if (textEl) {
-    textEl.textContent = `${formatFileSize(quota.used_bytes)} / ${formatFileSize(quota.quota_bytes)}`;
-  }
-
-  const pct = Math.min(100, quota.percent_used || 0);
-  if (fillEl) {
-    fillEl.style.width = pct + "%";
-    fillEl.style.background = pct >= 90 ? "#ef4444" : (pct >= 75 ? "#f59e0b" : "#10b981");
-  }
-
-  if (bannerEl) {
-    bannerEl.style.display = pct >= 85 ? "block" : "none";
-  }
-}
-
-async function loadMediaLibrary() {
-  const gridEl = document.getElementById("media-library-grid");
-  if (gridEl) gridEl.innerHTML = `<p class="media-empty-msg">⏳ Đang tải danh sách file...</p>`;
-
-  const acc = getSavedAccount();
   try {
-    const res = await fetch(STORAGE_API_URL, {
+    const res = await fetch(window.APP_CONFIG.restoreUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        token: SECRET_TOKEN,
-        action: "list",
-        uuid: acc.uuid,
-        email: acc.email
-      })
-    });
-    const result = await res.json();
-    if (result.status === "success") {
-      cachedMediaItems = result.items || [];
-      updateQuotaUI(result.quota);
-      renderMediaGrid();
-    } else {
-      if (gridEl) gridEl.innerHTML = `<p class="media-empty-msg">❌ ${escapeHtml(result.message)}</p>`;
-    }
-  } catch (err) {
-    if (gridEl) gridEl.innerHTML = `<p class="media-empty-msg">❌ Lỗi kết nối: ${escapeHtml(err.message)}</p>`;
-  }
-}
-
-async function purchasePlus1GBPack() {
-  const premEmailEl = document.getElementById("premium-email-input");
-  const email = premEmailEl ? premEmailEl.value.trim() : "";
-
-  if (!email || !email.includes("@")) {
-    alert("Vui lòng nhập địa chỉ Email hợp lệ để gắn gói mở rộng +1 GB vào tài khoản của bạn!");
-    if (premEmailEl) premEmailEl.focus();
-    return;
-  }
-
-  saveAccountCredentials(email, "");
-  const cloudEmailEl = document.getElementById("cloud-email");
-  if (cloudEmailEl && !cloudEmailEl.value) cloudEmailEl.value = email;
-
-  if (!confirm(`Xác nhận đăng ký gói mở rộng +1 GB (1,024 MB) với giá $0.50 cho tài khoản ${email}?`)) {
-    return;
-  }
-
-  const btn = document.getElementById("btn-buy-1gb");
-  const origText = btn ? btn.textContent : "";
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "⏳ Đang xử lý nâng cấp +1 GB...";
-  }
-
-  const acc = getSavedAccount();
-  try {
-    const res = await fetch(STORAGE_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: SECRET_TOKEN,
-        action: "buy_plus_1gb",
-        uuid: acc.uuid,
+        token: window.APP_CONFIG.securityToken,
         email: email,
-        payment_method: "in_app_050_usd"
+        password: password,
+        action: "delete",
+        filename: filename
       })
     });
     const result = await res.json();
-
-    if (result.status === "success" || result.status === "pending") {
-      updateQuotaUI(result.quota);
-      alert(result.message);
-      if (result.status === "success") {
-        switchMediaModalTab("library");
-        loadMediaLibrary();
-      }
-    } else {
-      alert(result.message || "Không thể kích hoạt gói mở rộng.");
-    }
+    showToast(result.message, result.status === "success" ? "success" : "error");
+    if (result.status === "success") fetchCloudVersions();
   } catch (err) {
-    alert("Lỗi kết nối khi nâng cấp: " + err.message);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = origText;
-    }
+    showToast("Delete failed: " + err.message, "error");
   }
 }
 
-function filterMediaLibrary(type, btnEl) {
-  currentMediaFilter = type;
-  document.querySelectorAll(".media-tab").forEach(b => b.classList.remove("active"));
-  if (btnEl) btnEl.classList.add("active");
-  renderMediaGrid();
+// 15. Local JSON Export & Import
+async function exportDataJSON() {
+  const fullPackage = await buildFullBackupPackage();
+  const blob = new Blob([JSON.stringify(fullPackage, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `SmartNote_0006_V4_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("JSON backup exported", "success");
+  triggerInterstitialAd();
 }
 
-function renderMediaGrid() {
-  const gridEl = document.getElementById("media-library-grid");
-  if (!gridEl) return;
-
-  const filtered = cachedMediaItems.filter(item => {
-    if (currentMediaFilter === "all") return true;
-    return item.type === currentMediaFilter;
-  });
-
-  if (filtered.length === 0) {
-    gridEl.innerHTML = `<p class="media-empty-msg">Chưa có ảnh hoặc tài liệu nào trong mục này.</p>`;
-    return;
-  }
-
-  gridEl.innerHTML = "";
-  filtered.forEach(item => {
-    const card = document.createElement("div");
-    card.className = "media-card";
-
-    const safeName = escapeHtml(item.name);
-    const safeUrl = escapeHtml(item.url);
-    const safeExt = escapeHtml(item.ext);
-    const safeId = escapeHtml(item.id);
-    const uploadDate = item.uploaded_at ? item.uploaded_at.split(" ")[0] : "";
-
-    const thumbHtml = item.type === "image"
-      ? `<img src="${safeUrl}" class="media-thumb" loading="lazy" alt="${safeName}">`
-      : `<div class="media-thumb">📄<small style="font-size:0.7rem;margin-left:4px;text-transform:uppercase;">.${safeExt}</small></div>`;
-
-    card.innerHTML = `
-      ${thumbHtml}
-      <div class="media-info">
-        <div class="media-name" title="${safeName}">${safeName}</div>
-        <div class="media-meta">${formatFileSize(item.size)} • ${uploadDate}</div>
-      </div>
-      <div class="media-card-actions">
-        <button class="btn-media-insert" onclick='insertMediaToEditor("${safeId}")'>➕ Chèn vào bài</button>
-        <button class="btn-media-del" onclick='deleteMediaItem("${safeId}")' title="Xóa">🗑️</button>
-      </div>
-    `;
-    gridEl.appendChild(card);
-  });
+function triggerImport() {
+  document.getElementById("import-file-input").click();
 }
 
-async function handleMediaFileSelect(event) {
-  const files = event.target.files;
-  if (!files || files.length === 0) return;
+function importDataJSON(e) {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  const btnUpload = document.getElementById("btn-trigger-upload");
-  const origBtnText = btnUpload ? btnUpload.textContent : "";
-  const acc = getSavedAccount();
-
-  for (let i = 0; i < files.length; i++) {
-    if (btnUpload) btnUpload.textContent = `⏳ Đang tải lên (${i + 1}/${files.length})...`;
-
-    const formData = new FormData();
-    formData.append("token", SECRET_TOKEN);
-    formData.append("action", "upload");
-    formData.append("uuid", acc.uuid);
-    formData.append("email", acc.email);
-    formData.append("file", files[i]);
-
+  const reader = new FileReader();
+  reader.onload = async (evt) => {
     try {
-      const res = await fetch(STORAGE_API_URL, {
-        method: "POST",
-        body: formData
-      });
-      const result = await res.json();
-
-      if (result.status === "success") {
-        cachedMediaItems.unshift(result.file);
-        updateQuotaUI(result.quota);
-      } else if (result.status === "quota_exceeded") {
-        updateQuotaUI(result.quota);
-        alert(result.message);
-        switchMediaModalTab("premium");
-        break;
+      const parsed = JSON.parse(evt.target.result);
+      if (await applyBackupPackage(parsed)) {
+        closeSidebar();
+        showToast("Backup imported successfully", "success");
       } else {
-        alert(`Lỗi tải file "${files[i].name}": ${result.message}`);
+        showToast("Invalid backup JSON structure", "error");
       }
     } catch (err) {
-      alert(`Lỗi mạng khi tải "${files[i].name}": ${err.message}`);
+      showToast("Failed to parse JSON file", "error");
     }
-  }
-
-  if (btnUpload) btnUpload.textContent = origBtnText;
-  event.target.value = "";
-  renderMediaGrid();
+  };
+  reader.readAsText(file);
+  e.target.value = "";
 }
 
-function insertMediaToEditor(fileId) {
-  const item = cachedMediaItems.find(it => it.id === fileId);
-  if (!item || !ckEditorInstance) return;
-
-  const safeName = escapeHtml(item.name);
-  const safeUrl = escapeHtml(item.url);
-
-  if (item.type === "image") {
-    ckEditorInstance.insertHtml(
-      `<p><img src="${safeUrl}" alt="${safeName}" style="max-width:100%; height:auto; border-radius:8px; margin:6px 0;" /></p>`
-    );
-  } else {
-    const sizeStr = formatFileSize(item.size);
-    const attachmentHtml = `
-      <p>
-        <a class="sn-file-link" href="${safeUrl}" download="${safeName}" data-filename="${safeName}" target="_blank" rel="noopener"
-           contenteditable="false"
-           style="display:inline-flex; align-items:center; gap:8px; padding:10px 14px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; color:#0369a1; text-decoration:none; font-weight:600; font-size:14px; margin:4px 0; cursor:pointer; user-select:none;">
-          <span>📎</span>
-          <span>${safeName} (${sizeStr})</span>
-          <span style="background:#0284c7; color:#fff; padding:2px 8px; border-radius:6px; font-size:12px;">⬇️ Tải xuống</span>
-        </a>
-      </p><p><br></p>`;
-    ckEditorInstance.insertHtml(attachmentHtml);
-  }
-
-  closeMediaModal();
-  saveCurrentNoteAuto();
-  updateWordCount();
-}
-
-async function deleteMediaItem(fileId) {
-  if (!confirm("Xóa file này khỏi đám mây? (Lưu ý: các bài viết đang chèn link file này sẽ không tải được nữa)")) return;
-
-  const acc = getSavedAccount();
+// 16. Native AdMob Integration (Banner + Interstitial)
+async function initAdMobNative() {
   try {
-    const res = await fetch(STORAGE_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: SECRET_TOKEN,
-        action: "delete",
-        uuid: acc.uuid,
-        email: acc.email,
-        file_id: fileId
-      })
-    });
-    const result = await res.json();
-    if (result.status === "success") {
-      cachedMediaItems = cachedMediaItems.filter(it => it.id !== fileId);
-      updateQuotaUI(result.quota);
-      renderMediaGrid();
-    } else {
-      alert(result.message);
+    if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins.AdMob) {
+      const { AdMob } = window.Capacitor.Plugins;
+      const cfg = window.APP_CONFIG.admob;
+
+      await AdMob.initialize({
+        initializeForTesting: cfg.isTesting
+      });
+
+      await AdMob.showBanner({
+        adId: cfg.bannerId,
+        adSize: "ADAPTIVE_BANNER",
+        position: "BOTTOM_CENTER",
+        margin: 0,
+        isTesting: cfg.isTesting
+      });
+
+      const webAdSlot = document.getElementById("admob-banner-container");
+      if (webAdSlot) webAdSlot.style.display = "none";
+      document.getElementById("app-footer").style.paddingBottom = "56px";
     }
-  } catch (err) {
-    alert("Lỗi xóa file: " + err.message);
+  } catch (e) {
+    console.warn("AdMob skipped:", e);
   }
+}
+
+async function triggerInterstitialAd() {
+  actionCounter++;
+  const cfg = window.APP_CONFIG.admob;
+  if (actionCounter % cfg.interstitialInterval !== 0) return;
+
+  try {
+    if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins.AdMob) {
+      const { AdMob } = window.Capacitor.Plugins;
+      await AdMob.prepareInterstitial({
+        adId: cfg.interstitialId,
+        isTesting: cfg.isTesting
+      });
+      await AdMob.showInterstitial();
+    }
+  } catch (e) {
+    console.warn("Interstitial skipped:", e);
+  }
+}
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

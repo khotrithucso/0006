@@ -1,4 +1,4 @@
-name: Build Android APK (App 0006 Pro V2 - Fix Crash)
+name: Build Android APK (App 0006 Pro V4)
 
 on:
   push:
@@ -22,18 +22,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 1. Cài đặt Capacitor & AdMob Plugin
-      - name: Install Dependencies & Plugins
+      - name: Install Capacitor & AdMob Plugin
         run: |
           npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android @capacitor-community/admob
 
-      # 2. Chuẩn bị thư mục www & Tạo Android Project
       - name: Prepare Web Assets & Add Android Platform
         run: |
           mkdir -p www
           npx cap add android || true
 
-      # 3. Chèn AdMob Application ID & Network Security vào AndroidManifest.xml (Sửa lỗi văng App)
       - name: Inject AdMob App ID & Network Config into AndroidManifest
         run: |
           mkdir -p android/app/src/main/res/xml
@@ -62,17 +59,14 @@ jobs:
                   content = content.replace('<application ', '<application android:networkSecurityConfig=\"@xml/network_security_config\" android:usesCleartextTraffic=\"true\" ')
               with open(manifest_path, 'w') as f:
                   f.write(content)
-              print('✅ Injected AdMob App ID into AndroidManifest.xml')
           "
 
-      # 4. Đồng bộ Web Assets vào Native Android
       - name: Sync Capacitor Assets
         run: |
           npx cap sync android
           mkdir -p android/app/src/main/assets/public
           cp -r www/* android/app/src/main/assets/public/
 
-      # 5. Khắc phục lỗi trùng lặp Kotlin (nếu có)
       - name: Fix Kotlin Duplicate Dependencies
         run: |
           if ! grep -q "kotlin-stdlib-jdk7" android/app/build.gradle; then
@@ -84,16 +78,14 @@ jobs:
             " >> android/app/build.gradle
           fi
 
-      # 6. Build Debug APK
       - name: Build Android Debug APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      # 7. Upload APK Artifact
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-0006-smartnote-prov2-fixed
+          name: app-0006-smartnote-prov4-aurora
           path: android/app/build/outputs/apk/debug/app-debug.apk

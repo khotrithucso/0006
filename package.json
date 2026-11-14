@@ -1,7 +1,7 @@
 {
   "name": "app-0006-smart-notebook-pro",
-  "version": "2.0.0",
-  "description": "Smart Multi-Notebook App with Cloud Backup, CKEditor 4 & KaTeX",
+  "version": "4.0.0",
+  "description": "Smart Note Pro V4 - Aurora Studio Multi-Notebook with CKEditor, KaTeX, Cloud Sync & AdMob",
   "main": "www/index.html",
   "scripts": {
     "build": "npx cap sync android"
