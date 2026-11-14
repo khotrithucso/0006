@@ -1,4 +1,4 @@
-name: Build Android APK (App 0006 Pro V4)
+name: Build Android APK (App 0006 Pro V5)
 
 on:
   push:
@@ -87,5 +87,5 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-0006-smartnote-prov4-aurora
+          name: app-0006-smartnote-prov5-release
           path: android/app/build/outputs/apk/debug/app-debug.apk
