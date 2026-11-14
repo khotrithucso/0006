@@ -3,16 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Smart Note Pro V4</title>
+  <title>Smart Note Pro V5</title>
 
-  <!-- CENTRAL APP & ADMOB CONFIGURATION -->
+  <!-- CENTRAL APP, CLOUD & ADMOB CONFIGURATION -->
   <script>
     window.APP_CONFIG = {
       appId: "0006",
-      version: "4.0.0",
+      version: "5.0.0",
       securityToken: "PhuongDevNe",
       backupUrl: "https://khotrithucso.io.vn/apps/0006/backup.php",
       restoreUrl: "https://khotrithucso.io.vn/apps/0006/restore.php",
+      shareUrl: "https://khotrithucso.io.vn/apps/0006/share.php",
+      storageUrl: "https://khotrithucso.io.vn/apps/0006/storage.php",
       admob: {
         // Google Dev Test IDs (Swap with real AdMob IDs before Play Store release)
         bannerId: "ca-app-pub-3940256099942544/6300978111",
@@ -23,7 +25,7 @@
     };
   </script>
 
-  <!-- Modern Typography (Online Google Fonts + Offline System Fallback) -->
+  <!-- Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
@@ -48,14 +50,14 @@
   <!-- Sidebar Drawer Backdrop -->
   <div id="sidebar-overlay" onclick="closeSidebar()"></div>
 
-  <!-- Left Studio Drawer: Notebooks & Pages -->
+  <!-- Left Studio Drawer: Notebooks, Pages, Drive & Backup -->
   <aside id="sidebar">
     <div class="sidebar-header">
       <div class="brand">
         <div class="brand-logo">✦</div>
         <div>
           <h3>Smart Note Pro</h3>
-          <small>Aurora Studio v4.0</small>
+          <small>Aurora Studio v5.0</small>
         </div>
       </div>
       <button class="btn-icon-round" onclick="closeSidebar()" title="Close Drawer">✕</button>
@@ -84,11 +86,12 @@
       <ul id="page-list" class="bento-list list-pages"></ul>
     </div>
 
-    <!-- Sidebar Footer: Cloud & Local Backup -->
+    <!-- Sidebar Footer: Cloud Drive, Cloud Backup & JSON -->
     <div class="sidebar-footer">
-      <button onclick="openCloudModal()" class="btn-cloud-gradient">
-        <span>☁️ Cloud Sync &amp; Backup</span>
-      </button>
+      <div class="footer-grid-btns">
+        <button onclick="openDriveModal()" class="btn-drive-gradient">📦 Cloud Drive</button>
+        <button onclick="openCloudModal()" class="btn-cloud-gradient">☁️ Sync Backup</button>
+      </div>
       <div class="footer-grid-btns">
         <button onclick="exportDataJSON()" class="btn-ghost">📥 Export JSON</button>
         <button onclick="triggerImport()" class="btn-ghost">📤 Import JSON</button>
@@ -107,34 +110,34 @@
           <span></span><span></span><span></span>
         </button>
 
-        <!-- Clickable Notebook Badge (Opens Rename/Customize Notebook Modal) -->
         <button class="notebook-context-pill" onclick="openEditActiveNotebook()" title="Tap to rename or customize this notebook">
           <span id="header-nb-icon" class="nb-dot">📘</span>
-          <span id="header-nb-name" class="nb-name-text">General Notebook</span>
+          <span id="header-nb-name" class="nb-name-text">General Studio</span>
           <span class="nb-edit-badge">✏️</span>
         </button>
 
-        <!-- Segmented Write / Read Switcher -->
         <div class="mode-switcher">
           <button id="btn-mode-write" class="mode-btn active" onclick="setWorkspaceMode('write')">✏️ Write</button>
           <button id="btn-mode-read" class="mode-btn" onclick="setWorkspaceMode('read')">👁️ Read</button>
         </div>
       </div>
 
-      <!-- Row 2: Page Title Input & Save Action -->
+      <!-- Row 2: Page Title Input, Share & Save Actions -->
       <div class="header-title-row">
         <input type="text" id="page-title" placeholder="Enter page title..." oninput="scheduleAutoSave()">
+        <button onclick="openShareModal()" class="btn-share-pill" title="Publish & Share Web Link">🔗 Share</button>
         <button onclick="saveCurrentPage(true)" class="btn-save-glow">💾 Save</button>
       </div>
 
       <!-- Row 3: Touch-Scrollable Creative Studio Tools -->
       <div class="studio-tools-strip">
-        <button onclick="toggleEditorToolbar()" id="btn-toggle-toolbar" class="tool-chip">🧰 Hide Toolbar</button>
+        <button onclick="openDriveModal()" class="tool-chip chip-drive">📎 Cloud Drive &amp; Attach</button>
         <button onclick="openPasteHtmlModal()" class="tool-chip chip-highlight">📋 Paste AI HTML</button>
-        <button onclick="triggerPhotoPicker()" class="tool-chip">📷 Photo</button>
+        <button onclick="triggerPhotoPicker()" class="tool-chip">📷 Local Photo</button>
         <button onclick="openCanvasModal()" class="tool-chip">🎨 Sketch</button>
         <button onclick="insertMathFormulaPrompt()" class="tool-chip">∑ Math</button>
         <button onclick="insertCalloutBox()" class="tool-chip">💡 Callout</button>
+        <button onclick="toggleEditorToolbar()" id="btn-toggle-toolbar" class="tool-chip">🧰 Hide Toolbar</button>
         <button onclick="toggleAppTheme()" id="btn-theme-toggle" class="tool-chip">🌙 Dark Mode</button>
         <input type="file" id="photo-picker-input" accept="image/*" style="display: none;" onchange="handlePhotoUpload(event)">
       </div>
@@ -219,7 +222,109 @@
     </div>
   </div>
 
-  <!-- MODAL 2: Paste Raw HTML / AI Lesson -->
+  <!-- MODAL 2: Cloud Drive & Media Storage (100 MB Free + $0.50/1GB Expansion) -->
+  <div id="drive-modal" class="modal">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3>📦 Cloud Drive &amp; Attachments</h3>
+        <button class="btn-icon-round" onclick="closeDriveModal()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Account Link Row -->
+        <div class="drive-account-bar">
+          <input type="email" id="drive-email" class="studio-input" placeholder="Link Email (merges guest uploads & unlocks +1GB packs)..." onchange="onDriveEmailChange()">
+          <button onclick="loadDriveFiles()" class="btn-cloud-action primary" style="flex:0 0 auto; padding:0 14px;">Refresh</button>
+        </div>
+
+        <!-- Storage Quota Card -->
+        <div class="quota-card">
+          <div class="quota-top">
+            <span id="quota-tier-badge" class="tier-badge">FREE (100 MB)</span>
+            <span id="quota-usage-text" class="quota-numbers">0 MB / 100 MB (0%)</span>
+          </div>
+          <div class="quota-bar-track">
+            <div id="quota-bar-fill" class="quota-bar-fill" style="width: 0%;"></div>
+          </div>
+          <div class="quota-bottom">
+            <span class="quota-note">Need more space? Expand +1 GB anytime for just <b>$0.50</b>.</span>
+            <button onclick="toggleUpgradePanel()" class="btn-upgrade-pack">⚡ +1 GB ($0.50)</button>
+          </div>
+
+          <!-- Expandable +1 GB Purchase Panel -->
+          <div id="upgrade-pack-panel" class="upgrade-panel" style="display: none;">
+            <div class="upgrade-info">
+              <strong>🚀 Storage Expansion Pack: +1 GB (1,024 MB)</strong>
+              <p>Price: <b>$0.50 USD</b> one-time per pack • Stackable infinitely on your linked Email.</p>
+            </div>
+            <div class="upgrade-actions">
+              <select id="upgrade-method" class="studio-input" style="max-width: 170px;">
+                <option value="google_play">Google Play Billing</option>
+                <option value="card_visa">Credit / Debit Card</option>
+                <option value="paypal">PayPal</option>
+              </select>
+              <button onclick="purchasePlus1GB()" class="btn-save-glow">Confirm +1 GB ($0.50)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Upload & Filter Toolbar -->
+        <div class="drive-toolbar">
+          <button onclick="triggerDriveUpload()" id="btn-drive-upload" class="btn-cloud-gradient" style="width:auto; padding:9px 14px;">
+            ⬆️ Upload Image or File
+          </button>
+          <input type="file" id="drive-file-input" style="display: none;" onchange="handleDriveFileUpload(event)">
+
+          <div class="drive-filters">
+            <button class="filter-chip active" data-filter="all" onclick="setDriveFilter('all', this)">All</button>
+            <button class="filter-chip" data-filter="image" onclick="setDriveFilter('image', this)">Images</button>
+            <button class="filter-chip" data-filter="file" onclick="setDriveFilter('file', this)">Files</button>
+          </div>
+        </div>
+
+        <!-- Uploaded Items List -->
+        <ul id="drive-items-list" class="drive-list">
+          <li class="drive-empty">Loading Cloud Drive...</li>
+        </ul>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="closeDriveModal()" class="btn-ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: Public Web Share Sheet -->
+  <div id="share-modal" class="modal">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3>🔗 Publish &amp; Share Note</h3>
+        <button class="btn-icon-round" onclick="closeShareModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Publish this page to the web. Embedded Cloud images, math formulas, and file download buttons will be visible to anyone with the link.</p>
+
+        <div id="share-status-box" class="share-box" style="display: none;">
+          <label class="field-label">Public Web Link</label>
+          <div class="share-link-row">
+            <input type="text" id="share-url-output" class="studio-input" readonly>
+            <button onclick="copyShareUrl()" class="btn-cloud-action primary" style="flex:0 0 auto; padding:0 12px;">Copy</button>
+          </div>
+          <div class="share-extra-btns">
+            <button onclick="nativeShareUrl()" class="btn-ghost">📤 Share App</button>
+            <button onclick="openSharedLinkBrowser()" class="btn-ghost">🌐 Open Web</button>
+            <button onclick="unpublishCurrentPage()" class="btn-ghost" style="color:var(--danger);">🗑️ Unpublish</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="closeShareModal()" class="btn-ghost">Close</button>
+        <button onclick="publishCurrentPage()" id="btn-publish-now" class="btn-save-glow">🚀 Publish / Update Link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: Paste Raw HTML / AI Lesson -->
   <div id="paste-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
@@ -237,7 +342,7 @@
     </div>
   </div>
 
-  <!-- MODAL 3: Whiteboard Hand-Drawing Canvas -->
+  <!-- MODAL 5: Whiteboard Hand-Drawing Canvas -->
   <div id="canvas-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
@@ -269,7 +374,7 @@
     </div>
   </div>
 
-  <!-- MODAL 4: Cloud Backup & Restore -->
+  <!-- MODAL 6: Cloud Backup & Restore -->
   <div id="cloud-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">

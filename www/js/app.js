@@ -2,27 +2,31 @@ if (window.CKEDITOR) {
   CKEDITOR.config.versionCheck = false;
 }
 
-// 1. Initialize IndexedDB (Notebooks with Custom Icon & Color -> Pages)
-const db = new Dexie("App0006SmartNotebookV4");
+// 1. Initialize IndexedDB (Notebooks -> Pages with shareId & shareUrl)
+const db = new Dexie("App0006SmartNotebookV5");
 db.version(1).stores({
   notebooks: "++id, title, icon, color, createdAt, updatedAt",
-  pages: "++id, notebookId, title, content, createdAt, updatedAt"
+  pages: "++id, notebookId, title, content, shareId, shareUrl, createdAt, updatedAt"
 });
 
 let currentNotebookId = null;
 let currentPageId = null;
 let ckEditorInstance = null;
-let workspaceMode = "write"; // 'write' | 'read'
+let workspaceMode = "write";
 let toolbarVisible = true;
 let readerFontSize = 16;
 let autoSaveTimer = null;
 let actionCounter = 0;
 
 // Notebook Modal State
-let nbModalMode = "create"; // 'create' | 'edit'
+let nbModalMode = "create";
 let editingNotebookId = null;
 let selectedNbIcon = "📘";
 let selectedNbColor = "#6366f1";
+
+// Cloud Drive State
+let driveItemsCache = [];
+let driveFilter = "all";
 
 // Canvas Drawing State
 let isEraserMode = false;
@@ -32,6 +36,7 @@ let canvasUndoStack = [];
 
 // 2. App Bootstrapping
 window.addEventListener("DOMContentLoaded", async () => {
+  ensureDeviceUuid();
   applySavedTheme();
   initNotebookCustomizerPickers();
   initCKEditor();
@@ -41,13 +46,37 @@ window.addEventListener("DOMContentLoaded", async () => {
   initAdMobNative();
 });
 
+function ensureDeviceUuid() {
+  let uuid = localStorage.getItem("app0006_device_uuid");
+  if (!uuid) {
+    uuid = "dev_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem("app0006_device_uuid", uuid);
+  }
+  return uuid;
+}
+
+function getActiveAccountEmail() {
+  const driveEmail = document.getElementById("drive-email")?.value.trim();
+  const cloudEmail = document.getElementById("cloud-email")?.value.trim();
+  return driveEmail || cloudEmail || localStorage.getItem("app0006_cloud_email") || "";
+}
+
+function syncAccountEmailInputs(email) {
+  if (!email) return;
+  localStorage.setItem("app0006_cloud_email", email);
+  const driveEl = document.getElementById("drive-email");
+  const cloudEl = document.getElementById("cloud-email");
+  if (driveEl && driveEl.value !== email) driveEl.value = email;
+  if (cloudEl && cloudEl.value !== email) cloudEl.value = email;
+}
+
 // 3. Toast Notification Engine
 function showToast(message, type = "info") {
   const container = document.getElementById("toast-container");
   const toast = document.createElement("div");
   toast.className = `toast-item ${type}`;
   const icon = type === "success" ? "✓" : type === "error" ? "✕" : "✦";
-  toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+  toast.innerHTML = `<span>${icon}</span><span>${escapeHtml(message)}</span>`;
   container.appendChild(toast);
 
   setTimeout(() => {
@@ -55,10 +84,10 @@ function showToast(message, type = "info") {
     toast.style.transform = "translateY(-8px)";
     toast.style.transition = "all 0.22s ease";
     setTimeout(() => toast.remove(), 240);
-  }, 2400);
+  }, 2600);
 }
 
-// 4. Dual Theme Engine (Light Paper vs. Midnight Obsidian)
+// 4. Dual Theme Engine
 function applySavedTheme() {
   const saved = localStorage.getItem("app0006_theme") || "light";
   document.documentElement.setAttribute("data-theme", saved);
@@ -162,14 +191,16 @@ async function bootstrapData() {
     });
     await db.pages.add({
       notebookId: nbId,
-      title: "Welcome to Smart Note Pro V4",
+      title: "Welcome to Smart Note Pro V5",
       content: `<h2>Aurora Studio Workspace</h2>
-        <p>Organize unlimited <b>Notebooks</b> and structured <b>Pages</b> right on your device.</p>
+        <p>Create unlimited <b>Notebooks</b> &amp; <b>Pages</b>, store files on <b>Cloud Drive (100 MB Free)</b>, and publish live web links with <b>Share</b>.</p>
         <ul>
-          <li><b>Rename &amp; Customize Notebooks:</b> Tap the notebook badge in the top bar or click ✏️ in the drawer to rename and pick custom icons.</li>
-          <li><b>Paste AI Lessons:</b> Tap <b>Paste AI HTML</b> to import formatted notes and KaTeX formulas from Gemini or ChatGPT.</li>
-          <li><b>Math Preview:</b> Switch to <b>Read Mode</b> to render formulas cleanly: $$\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}$$</li>
+          <li><b>Cloud Drive &amp; Attachments:</b> Tap <b>Cloud Drive &amp; Attach</b> to upload images or PDFs/ZIPs and embed download cards into your notes.</li>
+          <li><b>Rename &amp; Customize Notebooks:</b> Tap the notebook badge in the top bar or click ✏️ in the drawer.</li>
+          <li><b>Math Rendering:</b> Switch to <b>Read Mode</b> to render LaTeX formulas: $$\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}$$</li>
         </ul>`,
+      shareId: "",
+      shareUrl: "",
       createdAt: now,
       updatedAt: now
     });
@@ -215,7 +246,6 @@ async function renderSidebarLists(searchQuery = "") {
   const activeNb = notebooks.find(n => n.id === currentNotebookId);
   updateActiveNotebookHeader(activeNb);
 
-  // Render Pages
   let pages = [];
   if (searchQuery.trim() !== "") {
     const q = searchQuery.toLowerCase();
@@ -235,11 +265,12 @@ async function renderSidebarLists(searchQuery = "") {
     const li = document.createElement("li");
     li.className = pg.id === currentPageId ? "active" : "";
     const dateStr = new Date(pg.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const sharedBadge = pg.shareId ? " • 🌐 Shared" : "";
 
     li.innerHTML = `
       <div class="item-title-wrap">
         <span class="item-title-text">📄 ${escapeHtml(pg.title || "Untitled Page")}</span>
-        <span class="item-sub-text">Updated ${dateStr}</span>
+        <span class="item-sub-text">Updated ${dateStr}${sharedBadge}</span>
       </div>
       <div class="item-actions">
         <button class="btn-micro" title="Delete Page" onclick="event.stopPropagation(); deletePage(${pg.id})">🗑️</button>
@@ -351,6 +382,8 @@ async function saveNotebookModal() {
       notebookId: newNbId,
       title: "Page 1",
       content: "<p>Start writing or paste AI lesson HTML here...</p>",
+      shareId: "",
+      shareUrl: "",
       createdAt: now,
       updatedAt: now
     });
@@ -403,6 +436,8 @@ async function createNewPage() {
     notebookId: currentNotebookId,
     title: `Untitled Page ${count + 1}`,
     content: "<p></p>",
+    shareId: "",
+    shareUrl: "",
     createdAt: now,
     updatedAt: now
   });
@@ -555,7 +590,430 @@ function changeReaderFontSize(delta) {
   document.getElementById("reader-content").style.fontSize = readerFontSize + "px";
 }
 
-// 11. Content Insertion Helpers (Paste HTML, Math, Callout, Photo)
+// 11. Cloud Drive & Media Storage (100 MB Free + $0.50 / +1 GB Packs)
+async function openDriveModal() {
+  const email = getActiveAccountEmail();
+  if (email) document.getElementById("drive-email").value = email;
+  document.getElementById("drive-modal").style.display = "flex";
+  await loadDriveFiles();
+}
+
+function closeDriveModal() {
+  document.getElementById("drive-modal").style.display = "none";
+}
+
+function onDriveEmailChange() {
+  const email = document.getElementById("drive-email").value.trim();
+  if (email) syncAccountEmailInputs(email);
+  loadDriveFiles();
+}
+
+function toggleUpgradePanel() {
+  const panel = document.getElementById("upgrade-pack-panel");
+  panel.style.display = panel.style.display === "none" ? "flex" : "none";
+}
+
+async function loadDriveFiles() {
+  const email = document.getElementById("drive-email").value.trim();
+  const uuid = ensureDeviceUuid();
+  if (email) syncAccountEmailInputs(email);
+
+  const listEl = document.getElementById("drive-items-list");
+  listEl.innerHTML = `<li class="drive-empty">Syncing Cloud Drive...</li>`;
+
+  try {
+    const res = await fetch(window.APP_CONFIG.storageUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: window.APP_CONFIG.securityToken,
+        email: email,
+        uuid: uuid,
+        action: "list"
+      })
+    });
+    const result = await res.json();
+
+    if (result.status === "success") {
+      driveItemsCache = Array.isArray(result.items) ? result.items : [];
+      updateQuotaUI(result.quota);
+      renderDriveItems();
+    } else {
+      listEl.innerHTML = `<li class="drive-empty">${escapeHtml(result.message || "Failed to load Drive")}</li>`;
+    }
+  } catch (err) {
+    listEl.innerHTML = `<li class="drive-empty">Network error: ${escapeHtml(err.message)}</li>`;
+  }
+}
+
+function updateQuotaUI(quota) {
+  if (!quota) return;
+  const usedMB = (quota.used_bytes / (1024 * 1024)).toFixed(1);
+  const totalMB = Math.round(quota.quota_bytes / (1024 * 1024));
+  const pct = quota.percent_used || 0;
+
+  document.getElementById("quota-tier-badge").textContent = quota.tier || "FREE (100 MB)";
+  document.getElementById("quota-usage-text").textContent = `${usedMB} MB / ${totalMB} MB (${pct}%)`;
+
+  const fillEl = document.getElementById("quota-bar-fill");
+  fillEl.style.width = `${Math.min(100, pct)}%`;
+  fillEl.classList.toggle("danger", pct >= 85);
+}
+
+function setDriveFilter(filter, btnEl) {
+  driveFilter = filter;
+  document.querySelectorAll(".filter-chip").forEach(b => b.classList.remove("active"));
+  if (btnEl) btnEl.classList.add("active");
+  renderDriveItems();
+}
+
+function renderDriveItems() {
+  const listEl = document.getElementById("drive-items-list");
+  const filtered = driveItemsCache.filter(item => {
+    if (driveFilter === "all") return true;
+    return item.type === driveFilter;
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<li class="drive-empty">No files in this category yet. Tap <b>Upload Image or File</b> above!</li>`;
+    return;
+  }
+
+  listEl.innerHTML = "";
+  filtered.forEach(item => {
+    const li = document.createElement("li");
+    li.className = "drive-item";
+
+    const sizeStr = formatBytes(item.size || 0);
+    const thumbHtml = item.type === "image"
+      ? `<img src="${escapeHtml(item.url)}" class="drive-thumb" alt="thumb">`
+      : `<div class="drive-thumb">${getFileEmoji(item.ext)}</div>`;
+
+    li.innerHTML = `
+      <div class="drive-item-left">
+        ${thumbHtml}
+        <div class="drive-meta">
+          <span class="drive-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+          <span class="drive-sub">${sizeStr} • ${escapeHtml((item.ext || "").toUpperCase())}</span>
+        </div>
+      </div>
+      <div class="drive-item-actions">
+        <button class="btn-pill-add" onclick="insertDriveAssetToNote('${item.id}')">+ Insert</button>
+        <button class="btn-micro" title="Delete from Cloud" onclick="deleteDriveAsset('${item.id}')">🗑️</button>
+      </div>
+    `;
+    listEl.appendChild(li);
+  });
+}
+
+function triggerDriveUpload() {
+  document.getElementById("drive-file-input").click();
+}
+
+async function handleDriveFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const email = document.getElementById("drive-email").value.trim();
+  const uuid = ensureDeviceUuid();
+  if (email) syncAccountEmailInputs(email);
+
+  const btn = document.getElementById("btn-drive-upload");
+  const origLabel = btn.textContent;
+  btn.textContent = "⏳ Uploading...";
+  btn.disabled = true;
+
+  const formData = new FormData();
+  formData.append("token", window.APP_CONFIG.securityToken);
+  formData.append("email", email);
+  formData.append("uuid", uuid);
+  formData.append("action", "upload");
+  formData.append("file", file);
+
+  try {
+    const res = await fetch(window.APP_CONFIG.storageUrl, {
+      method: "POST",
+      body: formData
+    });
+    const result = await res.json();
+
+    if (result.status === "success") {
+      showToast("Uploaded to Cloud Drive!", "success");
+      if (result.quota) updateQuotaUI(result.quota);
+      await loadDriveFiles();
+    } else if (result.status === "quota_exceeded") {
+      showToast(result.message, "error");
+      if (result.quota) updateQuotaUI(result.quota);
+      document.getElementById("upgrade-pack-panel").style.display = "flex";
+    } else {
+      showToast(result.message || "Upload failed", "error");
+    }
+  } catch (err) {
+    showToast("Upload error: " + err.message, "error");
+  } finally {
+    btn.textContent = origLabel;
+    btn.disabled = false;
+    event.target.value = "";
+  }
+}
+
+async function purchasePlus1GB() {
+  const email = document.getElementById("drive-email").value.trim();
+  const uuid = ensureDeviceUuid();
+  const method = document.getElementById("upgrade-method").value;
+
+  if (!email) {
+    showToast("Please enter your account Email first to link +1 GB!", "error");
+    document.getElementById("drive-email").focus();
+    return;
+  }
+
+  syncAccountEmailInputs(email);
+
+  try {
+    const res = await fetch(window.APP_CONFIG.storageUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: window.APP_CONFIG.securityToken,
+        email: email,
+        uuid: uuid,
+        action: "buy_plus_1gb",
+        payment_method: method
+      })
+    });
+    const result = await res.json();
+
+    if (result.status === "success" || result.status === "pending") {
+      showToast(result.message, "success");
+      if (result.quota) updateQuotaUI(result.quota);
+      document.getElementById("upgrade-pack-panel").style.display = "none";
+      triggerInterstitialAd();
+    } else {
+      showToast(result.message || "Upgrade failed", "error");
+    }
+  } catch (err) {
+    showToast("Upgrade error: " + err.message, "error");
+  }
+}
+
+function insertDriveAssetToNote(fileId) {
+  const item = driveItemsCache.find(i => i.id === fileId);
+  if (!item) return;
+
+  if (workspaceMode === "read") setWorkspaceMode("write");
+
+  if (item.type === "image") {
+    ckEditorInstance.insertHtml(
+      `<p><img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.name)}" style="max-width:100%; height:auto; border-radius:10px;" /></p>`
+    );
+  } else {
+    const icon = getFileEmoji(item.ext);
+    const sizeStr = formatBytes(item.size || 0);
+    const safeName = escapeHtml(item.name);
+    const safeUrl = escapeHtml(item.url);
+
+    // Responsive Attachment Card with Download Button (Works in Editor, Reader & Public Share)
+    const cardHtml = `
+      <div class="snp-attachment-card" contenteditable="false" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; margin:12px 0; border-radius:12px; border:1px solid #cbd5e1; background:#f8fafc;">
+        <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+          <span style="font-size:1.5rem;">${icon}</span>
+          <div style="min-width:0;">
+            <div style="font-weight:700; font-size:0.92rem; color:#0f172a; word-break:break-all;">${safeName}</div>
+            <div style="font-size:0.76rem; color:#64748b;">Attached File • ${sizeStr}</div>
+          </div>
+        </div>
+        <a href="${safeUrl}" download="${safeName}" target="_blank" rel="noopener" class="snp-download-btn" style="display:inline-block; padding:8px 14px; border-radius:10px; background:#6366f1; color:#ffffff; font-weight:700; font-size:0.82rem; text-decoration:none; white-space:nowrap;">⬇ Download</a>
+      </div><p></p>`;
+    ckEditorInstance.insertHtml(cardHtml);
+  }
+
+  closeDriveModal();
+  saveCurrentPage(true);
+  showToast("Embedded into page!", "success");
+}
+
+async function deleteDriveAsset(fileId) {
+  if (!confirm("Permanently delete this file from Cloud Drive? Any notes linking to it will lose access.")) return;
+
+  const email = document.getElementById("drive-email").value.trim();
+  const uuid = ensureDeviceUuid();
+
+  try {
+    const res = await fetch(window.APP_CONFIG.storageUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: window.APP_CONFIG.securityToken,
+        email: email,
+        uuid: uuid,
+        action: "delete",
+        file_id: fileId
+      })
+    });
+    const result = await res.json();
+    if (result.status === "success") {
+      showToast("File deleted", "success");
+      if (result.quota) updateQuotaUI(result.quota);
+      await loadDriveFiles();
+    } else {
+      showToast(result.message || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast("Delete error: " + err.message, "error");
+  }
+}
+
+function getFileEmoji(ext) {
+  const e = (ext || "").toLowerCase();
+  if (e === "pdf") return "📕";
+  if (["doc", "docx", "txt", "md"].includes(e)) return "📘";
+  if (["xls", "xlsx", "csv"].includes(e)) return "📗";
+  if (["ppt", "pptx"].includes(e)) return "📙";
+  if (["zip", "rar", "7z"].includes(e)) return "🗜️";
+  if (["mp3", "wav"].includes(e)) return "🎵";
+  if (["mp4", "mov"].includes(e)) return "🎬";
+  return "📎";
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+}
+
+// 12. Public Web Share Engine (share.php)
+async function openShareModal() {
+  if (!currentPageId) return;
+  await saveCurrentPage(false);
+
+  const pg = await db.pages.get(currentPageId);
+  const statusBox = document.getElementById("share-status-box");
+  const urlInput = document.getElementById("share-url-output");
+
+  if (pg && pg.shareUrl) {
+    urlInput.value = pg.shareUrl;
+    statusBox.style.display = "flex";
+  } else {
+    urlInput.value = "";
+    statusBox.style.display = "none";
+  }
+
+  document.getElementById("share-modal").style.display = "flex";
+}
+
+function closeShareModal() {
+  document.getElementById("share-modal").style.display = "none";
+}
+
+async function publishCurrentPage() {
+  if (!currentPageId) return;
+  await saveCurrentPage(false);
+
+  const pg = await db.pages.get(currentPageId);
+  const nb = currentNotebookId ? await db.notebooks.get(currentNotebookId) : null;
+  if (!pg) return;
+
+  const btn = document.getElementById("btn-publish-now");
+  const orig = btn.textContent;
+  btn.textContent = "⏳ Publishing...";
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(window.APP_CONFIG.shareUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: window.APP_CONFIG.securityToken,
+        action: "publish",
+        share_id: pg.shareId || "",
+        title: pg.title || "Untitled Note",
+        notebook: nb ? nb.title : "Smart Note Pro",
+        content: pg.content || "",
+        email: getActiveAccountEmail()
+      })
+    });
+    const result = await res.json();
+
+    if (result.status === "success") {
+      await db.pages.update(currentPageId, {
+        shareId: result.share_id,
+        shareUrl: result.share_url
+      });
+
+      document.getElementById("share-url-output").value = result.share_url;
+      document.getElementById("share-status-box").style.display = "flex";
+      await renderSidebarLists();
+      showToast("Public link published!", "success");
+      triggerInterstitialAd();
+    } else {
+      showToast(result.message || "Failed to publish", "error");
+    }
+  } catch (err) {
+    showToast("Share error: " + err.message, "error");
+  } finally {
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
+async function unpublishCurrentPage() {
+  if (!currentPageId) return;
+  const pg = await db.pages.get(currentPageId);
+  if (!pg || !pg.shareId) return;
+
+  if (!confirm("Unpublish and remove this public web link?")) return;
+
+  try {
+    const res = await fetch(window.APP_CONFIG.shareUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: window.APP_CONFIG.securityToken,
+        action: "delete",
+        share_id: pg.shareId
+      })
+    });
+    const result = await res.json();
+    if (result.status === "success") {
+      await db.pages.update(currentPageId, { shareId: "", shareUrl: "" });
+      document.getElementById("share-status-box").style.display = "none";
+      await renderSidebarLists();
+      showToast("Public link removed");
+    }
+  } catch (err) {
+    showToast("Error unpublishing: " + err.message, "error");
+  }
+}
+
+function copyShareUrl() {
+  const url = document.getElementById("share-url-output").value;
+  if (!url) return;
+  navigator.clipboard.writeText(url).then(() => {
+    showToast("Link copied to clipboard!", "success");
+  }).catch(() => {
+    prompt("Copy share link:", url);
+  });
+}
+
+function nativeShareUrl() {
+  const url = document.getElementById("share-url-output").value;
+  const title = document.getElementById("page-title").value || "Smart Note Pro";
+  if (!url) return;
+
+  if (navigator.share) {
+    navigator.share({ title: title, text: `Read "${title}" on Smart Note Pro:`, url: url }).catch(() => {});
+  } else {
+    copyShareUrl();
+  }
+}
+
+function openSharedLinkBrowser() {
+  const url = document.getElementById("share-url-output").value;
+  if (url) window.open(url, "_blank");
+}
+
+// 13. Content Insertion Helpers (Paste HTML, Math, Callout, Local Photo)
 function openPasteHtmlModal() {
   document.getElementById("raw-html-input").value = "";
   document.getElementById("paste-modal").style.display = "flex";
@@ -624,7 +1082,7 @@ function handlePhotoUpload(event) {
   event.target.value = "";
 }
 
-// 12. Whiteboard Hand-Drawing Canvas Engine (With Undo & Grid Paper)
+// 14. Whiteboard Hand-Drawing Canvas Engine
 const canvas = document.getElementById("drawing-board");
 const ctx = canvas.getContext("2d");
 let isDrawing = false;
@@ -752,7 +1210,7 @@ function insertDrawingToEditor() {
   saveCurrentPage(true);
 }
 
-// 13. Drawer Navigation
+// 15. Drawer Navigation
 function openSidebar() {
   saveCurrentPage(false);
   document.getElementById("sidebar").classList.add("open");
@@ -764,8 +1222,10 @@ function closeSidebar() {
   document.getElementById("sidebar-overlay").style.display = "none";
 }
 
-// 14. Cloud Backup & Restore Engine
+// 16. Cloud Backup & Restore Engine
 function openCloudModal() {
+  const email = getActiveAccountEmail();
+  if (email) document.getElementById("cloud-email").value = email;
   document.getElementById("cloud-modal").style.display = "flex";
 }
 
@@ -775,7 +1235,7 @@ function closeCloudModal() {
 
 function restoreSavedCloudEmail() {
   const saved = localStorage.getItem("app0006_cloud_email");
-  if (saved) document.getElementById("cloud-email").value = saved;
+  if (saved) syncAccountEmailInputs(saved);
 }
 
 async function buildFullBackupPackage() {
@@ -818,7 +1278,7 @@ async function performCloudBackup() {
     return;
   }
 
-  localStorage.setItem("app0006_cloud_email", email);
+  syncAccountEmailInputs(email);
   const fullPackage = await buildFullBackupPackage();
 
   try {
@@ -853,7 +1313,7 @@ async function fetchCloudVersions() {
     return;
   }
 
-  localStorage.setItem("app0006_cloud_email", email);
+  syncAccountEmailInputs(email);
 
   try {
     const res = await fetch(window.APP_CONFIG.restoreUrl, {
@@ -886,12 +1346,12 @@ async function fetchCloudVersions() {
           : "";
         li.innerHTML = `
           <div>
-            <div>📅 ${item.timestamp}${noteTag}</div>
+            <div>📅 ${escapeHtml(item.timestamp)}${noteTag}</div>
             <small style="color:var(--text-muted);">${item.size_kb || 0} KB${statsTag}</small>
           </div>
           <div style="display:flex; gap:5px;">
-            <button class="canvas-btn active" onclick="restoreCloudVersion('${item.filename}')">Restore</button>
-            <button class="canvas-btn" onclick="deleteCloudVersion('${item.filename}')">🗑️</button>
+            <button class="canvas-btn active" onclick="restoreCloudVersion('${escapeHtml(item.filename)}')">Restore</button>
+            <button class="canvas-btn" onclick="deleteCloudVersion('${escapeHtml(item.filename)}')">🗑️</button>
           </div>
         `;
         listEl.appendChild(li);
@@ -961,14 +1421,14 @@ async function deleteCloudVersion(filename) {
   }
 }
 
-// 15. Local JSON Export & Import
+// 17. Local JSON Export & Import
 async function exportDataJSON() {
   const fullPackage = await buildFullBackupPackage();
   const blob = new Blob([JSON.stringify(fullPackage, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `SmartNote_0006_V4_${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `SmartNote_0006_V5_${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
   showToast("JSON backup exported", "success");
@@ -1001,7 +1461,7 @@ function importDataJSON(e) {
   e.target.value = "";
 }
 
-// 16. Native AdMob Integration (Banner + Interstitial)
+// 18. Native AdMob Integration (Banner + Interstitial)
 async function initAdMobNative() {
   try {
     if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins.AdMob) {
