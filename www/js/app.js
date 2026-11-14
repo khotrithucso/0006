@@ -19,6 +19,7 @@ const SECRET_TOKEN    = "PhuongDevNe";
 const BACKUP_API_URL  = "https://khotrithucso.io.vn/apps/0006/backup.php";
 const RESTORE_API_URL = "https://khotrithucso.io.vn/apps/0006/restore.php";
 const STORAGE_API_URL = "https://khotrithucso.io.vn/apps/0006/storage.php";
+const SHARE_API_URL   = "https://khotrithucso.io.vn/apps/0006/share.php";
 
 let cachedMediaItems   = [];
 let currentMediaFilter = "all";
@@ -56,6 +57,22 @@ function saveAccountCredentials(email, password) {
   if (password) localStorage.setItem("sn_user_pass", password.trim());
 }
 
+// Kích hoạt tải file trực tiếp ra ngoài khung CKEditor (hoạt động cả trên WebView Android lẫn trình duyệt)
+function triggerDirectFileDownload(fileUrl, fileName) {
+  if (!fileUrl) return;
+  const opened = window.open(fileUrl, "_blank", "noopener");
+  if (!opened) {
+    const tempLink = document.createElement("a");
+    tempLink.href = fileUrl;
+    tempLink.target = "_blank";
+    tempLink.rel = "noopener";
+    if (fileName) tempLink.setAttribute("download", fileName);
+    document.body.appendChild(tempLink);
+    tempLink.click();
+    document.body.removeChild(tempLink);
+  }
+}
+
 // ================= SMART KEYBOARD & VIEWPORT ADAPTATION =================
 function initSmartMobileViewport() {
   const initialHeight = window.innerHeight;
@@ -65,7 +82,6 @@ function initSmartMobileViewport() {
       const vvHeight = window.visualViewport.height;
       document.body.style.height = vvHeight + "px";
 
-      // Nếu chiều cao giảm hơn 140px => Bàn phím ảo đang mở
       if (initialHeight - vvHeight > 140) {
         document.body.classList.add("keyboard-open");
       } else {
@@ -85,7 +101,7 @@ function toggleToolbarExpand() {
   const isExpanded = document.body.classList.toggle("toolbar-expanded");
   const btn = document.getElementById("btn-toggle-toolbar");
   if (btn) {
-    btn.textContent = isExpanded ? "⊟ Thu gọn Tools" : "⊞ Bung Tools";
+    btn.textContent = isExpanded ? "⊟ Gọn Tools" : "⊞ Tools";
   }
 }
 
@@ -110,7 +126,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 function initCKEditor() {
   CKEDITOR.config.versionCheck = false;
 
-  // Sắp xếp các công cụ hay dùng nhất lên đầu tiên bên trái để vuốt chạm cực nhanh
   ckEditorInstance = CKEDITOR.replace("editor", {
     height: "100%",
     allowedContent: true,
@@ -127,6 +142,23 @@ function initCKEditor() {
       { name: "extra", items: ["Subscript", "Superscript", "RemoveFormat", "Blockquote", "Outdent", "Indent"] },
       { name: "document", items: ["Source", "Maximize"] }
     ]
+  });
+
+  // Bắt sự kiện click/chạm ngay bên trong vùng soạn thảo để tải file đính kèm trực tiếp
+  ckEditorInstance.on("contentDom", () => {
+    const editable = ckEditorInstance.editable();
+    editable.attachListener(editable, "click", (evt) => {
+      const rawTarget = evt.data.getTarget().$;
+      if (!rawTarget || !rawTarget.closest) return;
+
+      const linkEl = rawTarget.closest("a.sn-file-link, a[download]");
+      if (linkEl && linkEl.href) {
+        evt.data.preventDefault();
+        evt.data.stopPropagation();
+        const fileName = linkEl.getAttribute("download") || linkEl.dataset.filename || "download";
+        triggerDirectFileDownload(linkEl.href, fileName);
+      }
+    });
   });
 
   ckEditorInstance.on("instanceReady", () => {
@@ -154,7 +186,6 @@ function initCKEditor() {
     triggerKaTeXRender();
     updateWordCount();
 
-    // Tự động lưu ngầm sau 2 giây ngừng gõ
     clearTimeout(autoSaveTimer);
     autoSaveTimer = setTimeout(() => {
       saveCurrentNoteAuto();
@@ -317,6 +348,121 @@ async function deleteNotebook(id) {
 
 function onSearchInput(val) {
   loadNotebooksList(val);
+}
+
+// ================= SHARE WEB LINK ENGINE =================
+function getShareMap() {
+  try {
+    return JSON.parse(localStorage.getItem("sn_share_id_map") || "{}");
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveShareIdForNotebook(nbId, shareId) {
+  const map = getShareMap();
+  map[String(nbId)] = shareId;
+  localStorage.setItem("sn_share_id_map", JSON.stringify(map));
+}
+
+async function openShareModal() {
+  await saveCurrentNoteAuto();
+
+  const modal = document.getElementById("share-modal");
+  const statusText = document.getElementById("share-status-text");
+  const linkBox = document.getElementById("share-link-box");
+  const urlInput = document.getElementById("share-url-input");
+
+  if (modal) modal.style.display = "flex";
+  if (statusText) statusText.textContent = "⏳ Đang xuất bản ghi chú lên máy chủ...";
+  if (linkBox) linkBox.style.display = "none";
+
+  const titleField = document.getElementById("note-title");
+  const title = titleField ? titleField.value.trim() : "Sổ tay chưa đặt tên";
+  const content = ckEditorInstance ? ckEditorInstance.getData() : "";
+  const acc = getSavedAccount();
+  const shareMap = getShareMap();
+  const existingShareId = currentNotebookId ? (shareMap[String(currentNotebookId)] || "") : "";
+
+  try {
+    const res = await fetch(SHARE_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: SECRET_TOKEN,
+        title: title,
+        content: content,
+        email: acc.email,
+        uuid: acc.uuid,
+        share_id: existingShareId
+      })
+    });
+    const result = await res.json();
+
+    if (result.status === "success" && result.share_url) {
+      if (currentNotebookId && result.share_id) {
+        saveShareIdForNotebook(currentNotebookId, result.share_id);
+      }
+      if (statusText) statusText.textContent = "✅ Sẵn sàng chia sẻ! Bất kỳ ai có link đều xem & tải file đính kèm được:";
+      if (urlInput) urlInput.value = result.share_url;
+      if (linkBox) linkBox.style.display = "flex";
+    } else {
+      if (statusText) statusText.textContent = "❌ " + (result.message || "Không thể tạo liên kết.");
+    }
+  } catch (err) {
+    if (statusText) statusText.textContent = "❌ Lỗi kết nối máy chủ: " + err.message;
+  }
+}
+
+function closeShareModal() {
+  const modal = document.getElementById("share-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function copyShareUrl() {
+  const urlInput = document.getElementById("share-url-input");
+  const btn = document.getElementById("btn-copy-share");
+  if (!urlInput || !urlInput.value) return;
+
+  urlInput.select();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(urlInput.value).then(() => {
+      if (btn) {
+        const old = btn.textContent;
+        btn.textContent = "✅ Đã chép!";
+        setTimeout(() => { btn.textContent = old; }, 2000);
+      }
+    }).catch(() => {
+      document.execCommand("copy");
+      alert("Đã sao chép liên kết!");
+    });
+  } else {
+    document.execCommand("copy");
+    alert("Đã sao chép liên kết!");
+  }
+}
+
+function nativeShareUrl() {
+  const urlInput = document.getElementById("share-url-input");
+  const titleField = document.getElementById("note-title");
+  if (!urlInput || !urlInput.value) return;
+
+  if (navigator.share) {
+    navigator.share({
+      title: titleField ? titleField.value : "Ghi chú Smart Note Pro",
+      text: "Xem ghi chú chia sẻ từ Smart Note Pro:",
+      url: urlInput.value
+    }).catch(() => {});
+  } else {
+    copyShareUrl();
+  }
+}
+
+function openShareUrlInBrowser() {
+  const urlInput = document.getElementById("share-url-input");
+  if (urlInput && urlInput.value) {
+    window.open(urlInput.value, "_blank", "noopener");
+  }
 }
 
 // ================= NAVIGATION & MATH PROMPT =================
@@ -877,13 +1023,14 @@ function insertMediaToEditor(fileId) {
     const sizeStr = formatFileSize(item.size);
     const attachmentHtml = `
       <p>
-        <a href="${safeUrl}" download="${safeName}" target="_blank" rel="noopener"
-           style="display:inline-flex; align-items:center; gap:8px; padding:10px 14px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; color:#0369a1; text-decoration:none; font-weight:600; font-size:14px; margin:4px 0;">
+        <a class="sn-file-link" href="${safeUrl}" download="${safeName}" data-filename="${safeName}" target="_blank" rel="noopener"
+           contenteditable="false"
+           style="display:inline-flex; align-items:center; gap:8px; padding:10px 14px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; color:#0369a1; text-decoration:none; font-weight:600; font-size:14px; margin:4px 0; cursor:pointer; user-select:none;">
           <span>📎</span>
           <span>${safeName} (${sizeStr})</span>
-          <span style="background:#0284c7; color:#fff; padding:2px 8px; border-radius:6px; font-size:12px;">Tải xuống</span>
+          <span style="background:#0284c7; color:#fff; padding:2px 8px; border-radius:6px; font-size:12px;">⬇️ Tải xuống</span>
         </a>
-      </p>`;
+      </p><p><br></p>`;
     ckEditorInstance.insertHtml(attachmentHtml);
   }
 
@@ -920,4 +1067,3 @@ async function deleteMediaItem(fileId) {
     alert("Lỗi xóa file: " + err.message);
   }
 }
- 

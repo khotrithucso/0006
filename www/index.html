@@ -62,12 +62,13 @@
         <button onclick="saveCurrentNoteAuto()" class="btn-save">💾 Lưu</button>
       </div>
 
-      <!-- Row 2: Touch-Scrollable Action Tools (Auto-hides smoothly when keyboard opens) -->
+      <!-- Row 2: Touch-Scrollable Action Tools -->
       <div class="top-bar-tools" id="top-bar-tools">
-        <button onclick="openMediaModal('library')" class="btn-chip">📁 Ảnh & File</button>
-        <button onclick="openCanvasModal()" class="btn-chip">🎨 Vẽ tay</button>
+        <button onclick="openMediaModal('library')" class="btn-chip">📁 Ảnh/File</button>
+        <button onclick="openShareModal()" class="btn-chip btn-chip-share">🔗 Chia sẻ</button>
+        <button onclick="openCanvasModal()" class="btn-chip">🎨 Vẽ</button>
         <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Toán</button>
-        <button onclick="toggleToolbarExpand()" id="btn-toggle-toolbar" class="btn-chip">⊞ Bung Tools</button>
+        <button onclick="toggleToolbarExpand()" id="btn-toggle-toolbar" class="btn-chip">⊞ Tools</button>
         <button onclick="openMediaModal('premium')" class="btn-chip btn-chip-pro">💎 +1GB</button>
       </div>
     </header> 
@@ -77,7 +78,7 @@
       <textarea id="editor" name="editor"></textarea>
     </div>
 
-    <!-- Bottom App Footer (Auto-hides when typing to maximize screen) -->
+    <!-- Bottom App Footer -->
     <footer class="app-footer" id="app-footer">
       <div id="admob-banner-container" class="ad-container">
         <span class="ad-placeholder">Ad Space - Powered by AdMob</span>
@@ -89,6 +90,38 @@
       </div>
     </footer>
   </main>
+
+  <!-- Share Note Web Link Modal -->
+  <div id="share-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🔗 Chia sẻ Trang Web Ghi Chú</h3>
+        <button class="btn-close" onclick="closeShareModal()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p id="share-status-text" style="font-size: 0.85rem; color: #334155;">
+          ⏳ Đang tạo liên kết chia sẻ công khai...
+        </p>
+
+        <div class="share-link-box" id="share-link-box" style="display: none;">
+          <input type="text" id="share-url-input" readonly onclick="this.select()">
+          <div class="cloud-actions" style="margin-top: 8px;">
+            <button onclick="copyShareUrl()" id="btn-copy-share" class="btn-primary-cloud">📋 Sao chép Link</button>
+            <button onclick="nativeShareUrl()" class="btn-save" style="flex: 1;">📤 Gửi đi</button>
+            <button onclick="openShareUrlInBrowser()" class="btn-secondary-cloud">🌐 Xem thử</button>
+          </div>
+          <p style="font-size: 0.74rem; color: #64748b; margin-top: 8px;">
+            💡 Khi bạn chỉnh sửa sổ tay này và bấm <b>🔗 Chia sẻ</b> lại, nội dung trên link cũ sẽ tự động cập nhật mới nhất.
+          </p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="closeShareModal()" class="btn-sub">Đóng</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Canvas Drawing Modal -->
   <div id="canvas-modal" class="modal">
@@ -159,7 +192,6 @@
         <button class="btn-close" onclick="closeMediaModal()">✕</button>
       </div>
 
-      <!-- Primary Modal Tabs: Library vs Premium -->
       <div class="modal-main-tabs">
         <button id="tab-btn-library" class="modal-main-tab active" onclick="switchMediaModalTab('library')">
           📂 Thư viện Ảnh & File
@@ -170,7 +202,6 @@
       </div>
 
       <div class="modal-body media-modal-body">
-        <!-- Shared Storage Quota Bar -->
         <div class="storage-quota-box">
           <div class="quota-header">
             <span id="media-account-badge">📱 Khách (100MB Free)</span>

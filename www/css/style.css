@@ -19,7 +19,7 @@ body {
   flex-direction: column;
 }
 
-/* Hide CKEditor security warning & bottom breadcrumb path ("body p") */
+/* Hide CKEditor security warning & bottom breadcrumb path */
 .cke_notification_warning, 
 .cke_notifications_area, 
 .cke_notification,
@@ -243,7 +243,7 @@ body {
 .top-bar-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -255,11 +255,11 @@ body {
 }
 
 .btn-chip {
-  padding: 4px 10px;
+  padding: 4px 9px;
   background: #f1f5f9;
   border: 1px solid #cbd5e1;
   border-radius: 14px;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: #334155;
   white-space: nowrap;
@@ -271,13 +271,19 @@ body {
   background: #e2e8f0;
 }
 
+.btn-chip-share {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #0369a1;
+}
+
 .btn-chip-pro {
   background: #fef3c7;
   border-color: #fcd34d;
   color: #b45309;
 }
 
-/* ================= SMART CKEDITOR TOOLBAR (NEVER LOST ON MOBILE) ================= */
+/* ================= SMART CKEDITOR TOOLBAR ================= */
 .editor-wrapper {
   flex: 1;
   display: flex;
@@ -304,7 +310,6 @@ body {
   min-height: 0 !important;
 }
 
-/* Single-Row Horizontal Scrollable Toolbar by Default */
 .cke_top {
   flex-shrink: 0 !important;
   padding: 4px 6px !important;
@@ -344,7 +349,6 @@ body {
   margin: 0 2px 0 0 !important;
 }
 
-/* Expanded Multi-Row Mode when User Toggles "Bung Tools" */
 body.toolbar-expanded .cke_top {
   white-space: normal !important;
   overflow-x: hidden !important;
@@ -363,7 +367,7 @@ body.toolbar-expanded .cke_toolbox {
   height: auto !important;
 }
 
-/* Keyboard-Open Smart Mode: Maximize Editor & Keep 1-Row Toolbar Visible */
+/* Keyboard-Open Smart Mode */
 body.keyboard-open .top-bar {
   padding: 4px 8px;
   gap: 0;
@@ -457,12 +461,15 @@ body.keyboard-open .editor-wrapper {
   gap: 10px;
 }
 
-.auth-box { display: flex; flex-direction: column; gap: 8px; }
-.auth-box input {
+.auth-box, .share-link-box { display: flex; flex-direction: column; gap: 6px; }
+.auth-box input, #share-url-input {
+  width: 100%;
   padding: 9px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
+  background: #f8fafc;
+  color: #0f172a;
 }
 
 .cloud-actions { display: flex; gap: 8px; }
@@ -472,7 +479,7 @@ body.keyboard-open .editor-wrapper {
   border: none;
   border-radius: 8px;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   cursor: pointer;
 }
 .btn-primary-cloud { background: #0284c7; color: white; }
@@ -827,4 +834,3 @@ body.keyboard-open .editor-wrapper {
   font-size: 0.7rem;
   color: #92400e;
 }
- 
