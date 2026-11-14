@@ -62,10 +62,13 @@
       </div>
 
       <!-- Row 2: Touch-Scrollable Action Tools -->
+            <!-- Row 2: Touch-Scrollable Action Tools -->
       <div class="top-bar-tools">
+        <button onclick="openMediaModal()" class="btn-chip">📁 Ảnh & File</button>
         <button onclick="openCanvasModal()" class="btn-chip">🎨 Draw</button>
         <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Math</button>
       </div>
+
     </header>
 
     <!-- Content Editor Wrapper -->
@@ -146,7 +149,56 @@
       </div>
     </div>
   </div>
+  <!-- Media & File Cloud Library Modal -->
+  <div id="media-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📁 Thư viện Ảnh & Tài liệu</h3>
+        <button class="btn-close" onclick="closeMediaModal()">✕</button>
+      </div>
 
+      <div class="modal-body media-modal-body">
+        <!-- Account & Storage Quota Info -->
+        <div class="storage-quota-box">
+          <div class="quota-header">
+            <span id="media-account-badge">👤 Khách (UUID)</span>
+            <span id="media-quota-text">0 MB / 50 MB</span>
+          </div>
+          <div class="quota-bar-bg">
+            <div id="media-quota-fill" class="quota-bar-fill" style="width: 0%;"></div>
+          </div>
+          <div id="media-upgrade-banner" class="upgrade-banner" style="display: none;">
+            ⚠️ Bộ nhớ sắp đầy hoặc đã đạt giới hạn! Hãy đăng nhập Email (tăng lên 200MB) hoặc nâng cấp gói Pro để mở rộng lưu trữ.
+          </div>
+        </div>
+
+        <!-- Upload Controls -->
+        <div class="media-upload-bar">
+          <input type="file" id="media-file-input" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip,.rar,.7z,.mp3,.mp4" style="display: none;" onchange="handleMediaFileSelect(event)">
+          <button onclick="document.getElementById('media-file-input').click()" id="btn-trigger-upload" class="btn-primary-cloud">
+            ⬆️ Tải Ảnh / File từ máy lên
+          </button>
+        </div>
+
+        <!-- Filter Tabs -->
+        <div class="media-filter-tabs">
+          <button class="media-tab active" onclick="filterMediaLibrary('all', this)">Tất cả</button>
+          <button class="media-tab" onclick="filterMediaLibrary('image', this)">🖼️ Ảnh</button>
+          <button class="media-tab" onclick="filterMediaLibrary('file', this)">📄 Tài liệu</button>
+        </div>
+
+        <!-- Media Grid / List -->
+        <div id="media-library-grid" class="media-grid">
+          <p class="media-empty-msg">Đang tải thư viện...</p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="closeMediaModal()" class="btn-sub">Đóng</button>
+      </div>
+    </div>
+  </div>
+ 
   <script src="js/app.js"></script>
 </body>
 </html>
