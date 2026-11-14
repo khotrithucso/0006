@@ -13,13 +13,14 @@ let currentNotebookId = null;
 let ckEditorInstance = null;
 let isEraserMode = false;
 let currentPenColor = "#1e293b";
+let autoSaveTimer = null;
 
-const SECRET_TOKEN = "PhuongDevNe";
-const BACKUP_API_URL = "https://khotrithucso.io.vn/apps/0006/backup.php";
+const SECRET_TOKEN    = "PhuongDevNe";
+const BACKUP_API_URL  = "https://khotrithucso.io.vn/apps/0006/backup.php";
 const RESTORE_API_URL = "https://khotrithucso.io.vn/apps/0006/restore.php";
 const STORAGE_API_URL = "https://khotrithucso.io.vn/apps/0006/storage.php";
 
-let cachedMediaItems = [];
+let cachedMediaItems   = [];
 let currentMediaFilter = "all";
 
 // ================= HELPER UTILITIES =================
@@ -55,14 +56,50 @@ function saveAccountCredentials(email, password) {
   if (password) localStorage.setItem("sn_user_pass", password.trim());
 }
 
+// ================= SMART KEYBOARD & VIEWPORT ADAPTATION =================
+function initSmartMobileViewport() {
+  const initialHeight = window.innerHeight;
+
+  function adjustViewport() {
+    if (window.visualViewport) {
+      const vvHeight = window.visualViewport.height;
+      document.body.style.height = vvHeight + "px";
+
+      // Nếu chiều cao giảm hơn 140px => Bàn phím ảo đang mở
+      if (initialHeight - vvHeight > 140) {
+        document.body.classList.add("keyboard-open");
+      } else {
+        document.body.classList.remove("keyboard-open");
+      }
+    }
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", adjustViewport);
+    window.visualViewport.addEventListener("scroll", () => window.scrollTo(0, 0));
+  }
+  window.addEventListener("resize", adjustViewport);
+}
+
+function toggleToolbarExpand() {
+  const isExpanded = document.body.classList.toggle("toolbar-expanded");
+  const btn = document.getElementById("btn-toggle-toolbar");
+  if (btn) {
+    btn.textContent = isExpanded ? "⊟ Thu gọn Tools" : "⊞ Bung Tools";
+  }
+}
+
 // ================= APPLICATION ENTRYPOINT =================
 window.addEventListener("DOMContentLoaded", async () => {
-  // Tự động điền lại Email/Password đã lưu
+  initSmartMobileViewport();
+
   const acc = getSavedAccount();
   const emailEl = document.getElementById("cloud-email");
   const passEl = document.getElementById("cloud-pass");
+  const premEmailEl = document.getElementById("premium-email-input");
   if (emailEl && acc.email) emailEl.value = acc.email;
   if (passEl && acc.password) passEl.value = acc.password;
+  if (premEmailEl && acc.email) premEmailEl.value = acc.email;
 
   initCKEditor();
   initCanvasDrawing();
@@ -73,22 +110,22 @@ window.addEventListener("DOMContentLoaded", async () => {
 function initCKEditor() {
   CKEDITOR.config.versionCheck = false;
 
+  // Sắp xếp các công cụ hay dùng nhất lên đầu tiên bên trái để vuốt chạm cực nhanh
   ckEditorInstance = CKEDITOR.replace("editor", {
     height: "100%",
     allowedContent: true,
     extraAllowedContent: "*(*);*{*}",
     versionCheck: false,
+    removePlugins: "elementspath",
+    resize_enabled: false,
     toolbar: [
-      { name: "document", items: ["Source", "-", "Preview", "Print"] },
-      { name: "clipboard", items: ["Cut", "Copy", "Paste", "PasteText", "PasteFromWord", "-", "Undo", "Redo"] },
-      { name: "editing", items: ["Find", "Replace", "-", "SelectAll"] },
-      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "Subscript", "Superscript", "-", "RemoveFormat"] },
-      { name: "paragraph", items: ["NumberedList", "BulletedList", "-", "Outdent", "Indent", "-", "Blockquote", "-", "JustifyLeft", "JustifyCenter", "JustifyRight", "JustifyBlock"] },
-      { name: "links", items: ["Link", "Unlink"] },
-      { name: "insert", items: ["Image", "Table", "HorizontalRule", "SpecialChar", "Smiley"] },
-      { name: "styles", items: ["Styles", "Format", "Font", "FontSize"] },
-      { name: "colors", items: ["TextColor", "BGColor"] },
-      { name: "tools", items: ["Maximize", "ShowBlocks"] }
+      { name: "basicstyles", items: ["Bold", "Italic", "Underline", "Strike", "TextColor", "BGColor"] },
+      { name: "paragraph", items: ["BulletedList", "NumberedList", "JustifyLeft", "JustifyCenter", "JustifyRight"] },
+      { name: "history", items: ["Undo", "Redo"] },
+      { name: "styles", items: ["Format", "FontSize", "Font"] },
+      { name: "insert", items: ["Table", "Link", "Unlink", "HorizontalRule", "SpecialChar"] },
+      { name: "extra", items: ["Subscript", "Superscript", "RemoveFormat", "Blockquote", "Outdent", "Indent"] },
+      { name: "document", items: ["Source", "Maximize"] }
     ]
   });
 
@@ -99,11 +136,29 @@ function initCKEditor() {
     updateWordCount();
   });
 
+  ckEditorInstance.on("focus", () => {
+    document.body.classList.add("keyboard-open");
+  });
+
+  ckEditorInstance.on("blur", () => {
+    setTimeout(() => {
+      if (!window.visualViewport || (window.innerHeight - window.visualViewport.height < 120)) {
+        document.body.classList.remove("keyboard-open");
+      }
+    }, 150);
+  });
+
   ckEditorInstance.on("change", () => {
     const statusEl = document.getElementById("save-status");
-    if (statusEl) statusEl.textContent = "Unsaved changes...";
+    if (statusEl) statusEl.textContent = "Đang sửa...";
     triggerKaTeXRender();
     updateWordCount();
+
+    // Tự động lưu ngầm sau 2 giây ngừng gõ
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => {
+      saveCurrentNoteAuto();
+    }, 2000);
   });
 }
 
@@ -132,7 +187,7 @@ function updateWordCount() {
   const chars = text.length;
   const wordCountEl = document.getElementById("word-count-display");
   if (wordCountEl) {
-    wordCountEl.textContent = `${words} words | ${chars} chars`;
+    wordCountEl.textContent = `${words} từ | ${chars} ký tự`;
   }
 }
 
@@ -164,7 +219,7 @@ async function loadNotebooksList(filterText = "") {
       li.className = nb.id === currentNotebookId ? "active" : "";
 
       const titleSpan = document.createElement("span");
-      titleSpan.textContent = nb.title || "Untitled Notebook";
+      titleSpan.textContent = nb.title || "Sổ tay chưa đặt tên";
       titleSpan.onclick = () => selectNotebook(nb.id);
 
       const delBtn = document.createElement("button");
@@ -193,8 +248,8 @@ async function createNewNotebook() {
 
   const timestamp = new Date().getTime();
   const id = await db.notebooks.add({
-    title: "New Notebook " + new Date().toLocaleDateString("en-US"),
-    content: "<p>Paste HTML or LaTeX content from Gemini/ChatGPT here...</p>",
+    title: "Sổ tay " + new Date().toLocaleDateString("vi-VN"),
+    content: "<p>Nhập nội dung ghi chú, công thức toán hoặc chèn ảnh/tài liệu tại đây...</p>",
     createdAt: timestamp,
     updatedAt: timestamp
   });
@@ -223,14 +278,14 @@ async function selectNotebook(id) {
     }
   }
   const statusEl = document.getElementById("save-status");
-  if (statusEl) statusEl.textContent = "All changes saved";
+  if (statusEl) statusEl.textContent = "Đã lưu";
   await loadNotebooksList();
 }
 
 async function saveCurrentNoteAuto() {
   if (!currentNotebookId) return;
   const titleField = document.getElementById("note-title");
-  const title = titleField ? titleField.value : "Untitled Notebook";
+  const title = titleField ? titleField.value : "Sổ tay chưa đặt tên";
   const content = ckEditorInstance ? ckEditorInstance.getData() : "";
 
   await db.notebooks.update(currentNotebookId, {
@@ -240,12 +295,12 @@ async function saveCurrentNoteAuto() {
   });
 
   const statusEl = document.getElementById("save-status");
-  if (statusEl) statusEl.textContent = "All changes saved";
+  if (statusEl) statusEl.textContent = "Đã lưu";
   await loadNotebooksList();
 }
 
 async function deleteNotebook(id) {
-  if (confirm("Are you sure you want to delete this notebook?")) {
+  if (confirm("Bạn có chắc muốn xóa cuốn sổ tay này không?")) {
     await db.notebooks.delete(id);
     if (currentNotebookId === id) {
       currentNotebookId = null;
@@ -276,7 +331,7 @@ function closeSidebar() {
 }
 
 function insertMathFormulaPrompt() {
-  const formula = prompt("Enter LaTeX math formula (e.g., \\frac{a}{b} or E = mc^2):", "\\int_{0}^{\\infty} x^2 dx");
+  const formula = prompt("Nhập công thức LaTeX (VD: \\frac{a}{b} hoặc E = mc^2):", "\\int_{0}^{\\infty} x^2 dx");
   if (formula && ckEditorInstance) {
     ckEditorInstance.insertHtml(` $$${formula}$$ `);
     triggerKaTeXRender();
@@ -544,16 +599,44 @@ async function restoreCloudVersion(filename) {
   }
 }
 
-// ================= MEDIA & FILE CLOUD LIBRARY ENGINE =================
-function openMediaModal() {
+// ================= MEDIA LIBRARY & PREMIUM +1GB ($0.50) ENGINE =================
+function openMediaModal(defaultTab = "library") {
+  closeSidebar();
   const modal = document.getElementById("media-modal");
   if (modal) modal.style.display = "flex";
+
+  const acc = getSavedAccount();
+  const premEmailEl = document.getElementById("premium-email-input");
+  if (premEmailEl && acc.email && !premEmailEl.value) {
+    premEmailEl.value = acc.email;
+  }
+
+  switchMediaModalTab(defaultTab);
   loadMediaLibrary();
 }
 
 function closeMediaModal() {
   const modal = document.getElementById("media-modal");
   if (modal) modal.style.display = "none";
+}
+
+function switchMediaModalTab(tabName) {
+  const btnLib = document.getElementById("tab-btn-library");
+  const btnPrem = document.getElementById("tab-btn-premium");
+  const panelLib = document.getElementById("panel-media-library");
+  const panelPrem = document.getElementById("panel-media-premium");
+
+  if (tabName === "premium") {
+    if (btnLib) btnLib.classList.remove("active");
+    if (btnPrem) btnPrem.classList.add("active");
+    if (panelLib) panelLib.style.display = "none";
+    if (panelPrem) panelPrem.style.display = "block";
+  } else {
+    if (btnPrem) btnPrem.classList.remove("active");
+    if (btnLib) btnLib.classList.add("active");
+    if (panelPrem) panelPrem.style.display = "none";
+    if (panelLib) panelLib.style.display = "block";
+  }
 }
 
 function formatFileSize(bytes) {
@@ -572,9 +655,9 @@ function updateQuotaUI(quota) {
 
   if (badgeEl) {
     if (quota.email) {
-      badgeEl.textContent = `📧 ${quota.email} (${quota.tier === "PRO" ? "PRO" : "Free"})`;
+      badgeEl.textContent = `📧 ${quota.email} • ${quota.tier}`;
     } else {
-      badgeEl.textContent = `📱 Khách (${quota.tier})`;
+      badgeEl.textContent = `📱 ${quota.tier}`;
     }
   }
 
@@ -619,6 +702,66 @@ async function loadMediaLibrary() {
     }
   } catch (err) {
     if (gridEl) gridEl.innerHTML = `<p class="media-empty-msg">❌ Lỗi kết nối: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function purchasePlus1GBPack() {
+  const premEmailEl = document.getElementById("premium-email-input");
+  const email = premEmailEl ? premEmailEl.value.trim() : "";
+
+  if (!email || !email.includes("@")) {
+    alert("Vui lòng nhập địa chỉ Email hợp lệ để gắn gói mở rộng +1 GB vào tài khoản của bạn!");
+    if (premEmailEl) premEmailEl.focus();
+    return;
+  }
+
+  saveAccountCredentials(email, "");
+  const cloudEmailEl = document.getElementById("cloud-email");
+  if (cloudEmailEl && !cloudEmailEl.value) cloudEmailEl.value = email;
+
+  if (!confirm(`Xác nhận đăng ký gói mở rộng +1 GB (1,024 MB) với giá $0.50 cho tài khoản ${email}?`)) {
+    return;
+  }
+
+  const btn = document.getElementById("btn-buy-1gb");
+  const origText = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Đang xử lý nâng cấp +1 GB...";
+  }
+
+  const acc = getSavedAccount();
+  try {
+    const res = await fetch(STORAGE_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: SECRET_TOKEN,
+        action: "buy_plus_1gb",
+        uuid: acc.uuid,
+        email: email,
+        payment_method: "in_app_050_usd"
+      })
+    });
+    const result = await res.json();
+
+    if (result.status === "success" || result.status === "pending") {
+      updateQuotaUI(result.quota);
+      alert(result.message);
+      if (result.status === "success") {
+        switchMediaModalTab("library");
+        loadMediaLibrary();
+      }
+    } else {
+      alert(result.message || "Không thể kích hoạt gói mở rộng.");
+    }
+  } catch (err) {
+    alert("Lỗi kết nối khi nâng cấp: " + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
   }
 }
 
@@ -704,6 +847,7 @@ async function handleMediaFileSelect(event) {
       } else if (result.status === "quota_exceeded") {
         updateQuotaUI(result.quota);
         alert(result.message);
+        switchMediaModalTab("premium");
         break;
       } else {
         alert(`Lỗi tải file "${files[i].name}": ${result.message}`);
@@ -776,3 +920,4 @@ async function deleteMediaItem(fileId) {
     alert("Lỗi xóa file: " + err.message);
   }
 }
+ 

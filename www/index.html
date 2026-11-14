@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Smart Note Pro V2</title>
+  <title>Smart Note Pro V2.1</title>
   
   <!-- CKEditor 4 Full CDN -->
   <script src="https://cdn.ckeditor.com/4.22.1/full/ckeditor.js"></script>
@@ -30,45 +30,46 @@
         <span class="brand-icon">📚</span>
         <div>
           <h3>Notebook Library</h3>
-          <small>App 0006 Pro V2</small>
+          <small>Smart Note Pro v2.1</small>
         </div>
       </div>
       <button class="btn-close" onclick="closeSidebar()">✕</button>
     </div>
     
     <div class="sidebar-actions">
-      <button class="btn-create" onclick="createNewNotebook()">+ New Notebook</button>
+      <button class="btn-create" onclick="createNewNotebook()">+ Tạo Sổ Tay Mới</button>
       <div class="search-box">
-        <input type="text" id="search-input" placeholder="Search notes..." oninput="onSearchInput(this.value)">
+        <input type="text" id="search-input" placeholder="Tìm kiếm ghi chú..." oninput="onSearchInput(this.value)">
       </div>
     </div>
 
     <ul id="notebook-list"></ul>
 
     <div class="sidebar-footer">
+      <button onclick="openMediaModal('premium')" class="btn-premium-side">💎 Nâng cấp +1 GB ($0.50)</button>
       <button onclick="openCloudModal()" class="btn-cloud">☁️ Cloud Backup & Sync</button>
     </div>
   </aside>
 
   <!-- Main Workspace -->
   <main id="main-content">
-    <!-- Top Header: Dual Layer Responsive -->
+    <!-- Top Header: Smart Adaptive Layout -->
     <header class="top-bar">
-      <!-- Row 1: Primary Controls -->
+      <!-- Row 1: Primary Controls (Always Visible) -->
       <div class="top-bar-main">
         <button class="btn-menu" onclick="openSidebar()">☰</button>
-        <input type="text" id="note-title" placeholder="Notebook Title..." onchange="saveCurrentNoteAuto()">
-        <button onclick="saveCurrentNoteAuto()" class="btn-save">💾 Save</button>
+        <input type="text" id="note-title" placeholder="Tiêu đề sổ tay..." onchange="saveCurrentNoteAuto()">
+        <button onclick="saveCurrentNoteAuto()" class="btn-save">💾 Lưu</button>
       </div>
 
-      <!-- Row 2: Touch-Scrollable Action Tools -->
-            <!-- Row 2: Touch-Scrollable Action Tools -->
-      <div class="top-bar-tools">
-        <button onclick="openMediaModal()" class="btn-chip">📁 Ảnh & File</button>
-        <button onclick="openCanvasModal()" class="btn-chip">🎨 Draw</button>
-        <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Math</button>
+      <!-- Row 2: Touch-Scrollable Action Tools (Auto-hides smoothly when keyboard opens) -->
+      <div class="top-bar-tools" id="top-bar-tools">
+        <button onclick="openMediaModal('library')" class="btn-chip">📁 Ảnh & File</button>
+        <button onclick="openCanvasModal()" class="btn-chip">🎨 Vẽ tay</button>
+        <button onclick="insertMathFormulaPrompt()" class="btn-chip">∑ Toán</button>
+        <button onclick="toggleToolbarExpand()" id="btn-toggle-toolbar" class="btn-chip">⊞ Bung Tools</button>
+        <button onclick="openMediaModal('premium')" class="btn-chip btn-chip-pro">💎 +1GB</button>
       </div>
-
     </header> 
 
     <!-- Content Editor Wrapper -->
@@ -76,15 +77,15 @@
       <textarea id="editor" name="editor"></textarea>
     </div>
 
-    <!-- Bottom App Footer -->
-    <footer class="app-footer">
+    <!-- Bottom App Footer (Auto-hides when typing to maximize screen) -->
+    <footer class="app-footer" id="app-footer">
       <div id="admob-banner-container" class="ad-container">
         <span class="ad-placeholder">Ad Space - Powered by AdMob</span>
       </div>
       <div class="footer-meta">
-        <span>Smart Note Pro v2.0</span>
-        <span id="word-count-display">0 words | 0 chars</span>
-        <span id="save-status">All changes saved</span>
+        <span>Smart Note Pro v2.1</span>
+        <span id="word-count-display">0 từ | 0 ký tự</span>
+        <span id="save-status">Đã lưu</span>
       </div>
     </footer>
   </main>
@@ -93,19 +94,19 @@
   <div id="canvas-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>🎨 Hand-Drawing Canvas</h3>
+        <h3>🎨 Bảng Vẽ Tay</h3>
         <button class="btn-close" onclick="closeCanvasModal()">✕</button>
       </div>
       
       <div class="canvas-toolbar">
-        <label>Color: <input type="color" id="brush-color" value="#1e293b"></label>
-        <label>Size: 
+        <label>Màu: <input type="color" id="brush-color" value="#1e293b"></label>
+        <label>Cỡ: 
           <input type="range" id="brush-size" min="1" max="25" value="4">
           <span id="brush-size-val">4px</span>
         </label>
-        <button onclick="setEraserMode()" id="btn-eraser" class="btn-tool-sm">🧹 Eraser</button>
-        <button onclick="setPenMode()" id="btn-pen" class="btn-tool-sm active">✏️ Pen</button>
-        <button onclick="clearCanvas()" class="btn-tool-sm">🗑️ Clear</button>
+        <button onclick="setEraserMode()" id="btn-eraser" class="btn-tool-sm">🧹 Tẩy</button>
+        <button onclick="setPenMode()" id="btn-pen" class="btn-tool-sm active">✏️ Bút</button>
+        <button onclick="clearCanvas()" class="btn-tool-sm">🗑️ Xóa</button>
       </div>
 
       <div class="canvas-container">
@@ -113,8 +114,8 @@
       </div>
 
       <div class="modal-footer">
-        <button onclick="closeCanvasModal()" class="btn-sub">Cancel</button>
-        <button onclick="insertDrawingToEditor()" class="btn-save">Insert to Note</button>
+        <button onclick="closeCanvasModal()" class="btn-sub">Hủy</button>
+        <button onclick="insertDrawingToEditor()" class="btn-save">Chèn vào bài</button>
       </div>
     </div>
   </div>
@@ -123,73 +124,109 @@
   <div id="cloud-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>☁️ Cloud Backup & Restore</h3>
+        <h3>☁️ Sao lưu & Khôi phục Đám mây</h3>
         <button class="btn-close" onclick="closeCloudModal()">✕</button>
       </div>
       
       <div class="modal-body">
         <div class="auth-box">
-          <input type="email" id="cloud-email" placeholder="Account Email...">
-          <input type="password" id="cloud-pass" placeholder="Account Password...">
+          <input type="email" id="cloud-email" placeholder="Email tài khoản...">
+          <input type="password" id="cloud-pass" placeholder="Mật khẩu...">
         </div>
 
         <div class="cloud-actions">
-          <button onclick="performCloudBackup()" class="btn-primary-cloud">📤 Backup Data</button>
-          <button onclick="fetchCloudVersions()" class="btn-secondary-cloud">🔍 Find Backups</button>
+          <button onclick="performCloudBackup()" class="btn-primary-cloud">📤 Sao lưu lên Cloud</button>
+          <button onclick="fetchCloudVersions()" class="btn-secondary-cloud">🔍 Tìm bản sao lưu</button>
         </div>
 
         <div id="cloud-versions-wrapper" style="display: none; margin-top: 15px;">
-          <h4>Available Backups:</h4>
+          <h4>Các bản sao lưu hiện có:</h4>
           <ul id="cloud-versions-list"></ul>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button onclick="closeCloudModal()" class="btn-sub">Close</button>
+        <button onclick="closeCloudModal()" class="btn-sub">Đóng</button>
       </div>
     </div>
   </div>
-  <!-- Media & File Cloud Library Modal -->
+
+  <!-- Media Library & Premium Storage Modal -->
   <div id="media-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>📁 Thư viện Ảnh & Tài liệu</h3>
+        <h3>📁 Kho Lưu Trữ & Gói Mở Rộng</h3>
         <button class="btn-close" onclick="closeMediaModal()">✕</button>
       </div>
 
+      <!-- Primary Modal Tabs: Library vs Premium -->
+      <div class="modal-main-tabs">
+        <button id="tab-btn-library" class="modal-main-tab active" onclick="switchMediaModalTab('library')">
+          📂 Thư viện Ảnh & File
+        </button>
+        <button id="tab-btn-premium" class="modal-main-tab tab-premium-highlight" onclick="switchMediaModalTab('premium')">
+          💎 Premium (+1GB)
+        </button>
+      </div>
+
       <div class="modal-body media-modal-body">
-        <!-- Account & Storage Quota Info -->
+        <!-- Shared Storage Quota Bar -->
         <div class="storage-quota-box">
           <div class="quota-header">
-            <span id="media-account-badge">👤 Khách (UUID)</span>
-            <span id="media-quota-text">0 MB / 50 MB</span>
+            <span id="media-account-badge">📱 Khách (100MB Free)</span>
+            <span id="media-quota-text">0 MB / 100 MB</span>
           </div>
           <div class="quota-bar-bg">
             <div id="media-quota-fill" class="quota-bar-fill" style="width: 0%;"></div>
           </div>
           <div id="media-upgrade-banner" class="upgrade-banner" style="display: none;">
-            ⚠️ Bộ nhớ sắp đầy hoặc đã đạt giới hạn! Hãy đăng nhập Email (tăng lên 200MB) hoặc nâng cấp gói Pro để mở rộng lưu trữ.
+            ⚠️ Bộ nhớ sắp đầy! Chuyển sang tab <b>💎 Premium (+1GB)</b> để mở rộng thêm 1 GB chỉ với $0.50.
           </div>
         </div>
 
-        <!-- Upload Controls -->
-        <div class="media-upload-bar">
-          <input type="file" id="media-file-input" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip,.rar,.7z,.mp3,.mp4" style="display: none;" onchange="handleMediaFileSelect(event)">
-          <button onclick="document.getElementById('media-file-input').click()" id="btn-trigger-upload" class="btn-primary-cloud">
-            ⬆️ Tải Ảnh / File từ máy lên
-          </button>
+        <!-- TAB 1: MEDIA & FILE LIBRARY -->
+        <div id="panel-media-library">
+          <div class="media-upload-bar">
+            <input type="file" id="media-file-input" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip,.rar,.7z,.mp3,.mp4" style="display: none;" onchange="handleMediaFileSelect(event)">
+            <button onclick="document.getElementById('media-file-input').click()" id="btn-trigger-upload" class="btn-primary-cloud">
+              ⬆️ Tải Ảnh / File từ máy lên
+            </button>
+          </div>
+
+          <div class="media-filter-tabs" style="margin-top: 10px;">
+            <button class="media-tab active" onclick="filterMediaLibrary('all', this)">Tất cả</button>
+            <button class="media-tab" onclick="filterMediaLibrary('image', this)">🖼️ Ảnh</button>
+            <button class="media-tab" onclick="filterMediaLibrary('file', this)">📄 Tài liệu</button>
+          </div>
+
+          <div id="media-library-grid" class="media-grid" style="margin-top: 10px;">
+            <p class="media-empty-msg">Đang tải thư viện...</p>
+          </div>
         </div>
 
-        <!-- Filter Tabs -->
-        <div class="media-filter-tabs">
-          <button class="media-tab active" onclick="filterMediaLibrary('all', this)">Tất cả</button>
-          <button class="media-tab" onclick="filterMediaLibrary('image', this)">🖼️ Ảnh</button>
-          <button class="media-tab" onclick="filterMediaLibrary('file', this)">📄 Tài liệu</button>
-        </div>
+        <!-- TAB 2: PREMIUM +1 GB ($0.50) UPGRADE -->
+        <div id="panel-media-premium" style="display: none;">
+          <div class="premium-card">
+            <div class="premium-badge">GÓI MỞ RỘNG ĐÁM MÂY</div>
+            <h4 class="premium-title">Thêm +1 GB Bộ Nhớ Lưu Trữ</h4>
+            <div class="premium-price">$0.50 <span>/ gói (+1,024 MB)</span></div>
+            <ul class="premium-features">
+              <li>✅ Cộng thêm ngay <b>+1,024 MB</b> vào 100 MB miễn phí có sẵn</li>
+              <li>✅ Lưu giữ nguyên chất lượng ảnh gốc & tài liệu nặng</li>
+              <li>✅ Cho phép mua cộng dồn nhiều gói (+2GB, +3GB...)</li>
+              <li>✅ Gắn cố định vào Email, đổi điện thoại không mất dữ liệu</li>
+            </ul>
 
-        <!-- Media Grid / List -->
-        <div id="media-library-grid" class="media-grid">
-          <p class="media-empty-msg">Đang tải thư viện...</p>
+            <div class="premium-email-bind">
+              <label for="premium-email-input">Email nhận gói mở rộng:</label>
+              <input type="email" id="premium-email-input" placeholder="Nhập Gmail của bạn...">
+            </div>
+
+            <button onclick="purchasePlus1GBPack()" id="btn-buy-1gb" class="btn-buy-premium">
+              🚀 Mở rộng thêm +1 GB ngay ($0.50)
+            </button>
+            <p class="premium-note">Hỗ trợ kích hoạt qua Google Play / Chuyển khoản nhanh.</p>
+          </div>
         </div>
       </div>
 
